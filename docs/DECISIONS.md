@@ -10,8 +10,11 @@
 - Serial setup uses acknowledged `X` / `MOD5` commands with documented spacing.
   The hardware clock is never explicitly reset, including after synchronization.
   Existing optical sensitivity and smoothing settings are not altered.
-- Physical patch size uses operator-measured active screen width and height,
-  separately for horizontal and vertical pixel scaling. No assumed pixels/cm.
+- PO UX correction: calibration uses a 150 px starting square, mouse drag,
+  arrow movement, +/- resize, SPACE toggle, ENTER save, and ESC abort without
+  saving. Pixel coordinates/dimensions replace manual screen measurements;
+  no physical centimeter size is claimed. Both acquisition scripts continue
+  loading the same saved rectangle without scaling it.
 - Binary RX journals and hex messages retain original input, including setup,
   malformed lines, and unfinished fragments. Duplicate events are logged rather
   than dropped. No fabricated timestamps, timer unwrapping, or clock alignment.

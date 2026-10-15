@@ -25,13 +25,15 @@ opto_50_cycles
 simple_task
 ```
 
-- `opto_calibration`: enter the measured active display width and height in cm
-  at the console, or set those two parameters at the top of the script. The
-  patch measures approximately 4 x 4 cm after pixel rounding. Keep it clear of
-  the central fixation/stimulus and synchronization text. Arrows move it,
-  SPACE toggles black/white, and ESC saves `opto_patch.mat` and exits. Use the
-  existing BBTK app to adjust optical sensitivity; this script uses no serial
-  port and contains no sensitivity algorithm.
+- `opto_calibration`: opens full screen on black with a white 150 x 150 pixel
+  square (or restores the saved position/size for that display). Drag it with
+  the left mouse button or move it with the arrows. Press + / - to grow/shrink
+  by 10 pixels per side; the main =/+ and -/_ keys and keypad + / - work.
+  SPACE toggles black/white. ENTER saves `opto_patch.mat` and exits; ESC aborts
+  without changing an existing configuration. Keep the patch clear of the
+  central fixation/stimulus and synchronization text. No screen measurements
+  or console prompts are required. Use the existing BBTK app to adjust optical
+  sensitivity; this script uses no serial port or sensitivity algorithm.
 - `opto_50_cycles`: presents 50 white/black cycles, nominally 500 ms per state,
   and reports measured ON/OFF events plus sequence and timing errors. A
   completed presentation can still have a FAIL result. Leave the buttons alone.
@@ -42,7 +44,8 @@ simple_task
 
 The acquisition scripts reuse the saved display, position, dimensions, and RGB
 black `[0 0 0]` / white `[255 255 255]`. Repeat calibration after changing the
-display, its resolution, scaling, or physical dimensions. PTB sync checks stay
+display, its resolution, or scaling. The saved `rect` and `size_px` describe
+pixels; no physical centimeter size is assumed. PTB sync checks stay
 enabled. Visual durations are rounded to the nearest whole refresh interval;
 actual flip timestamps and missed deadlines are recorded.
 

@@ -15,6 +15,14 @@ The PO's M1 scope is recorded in [DECISIONS.md](DECISIONS.md). All three scripts
 are implemented. The optional Python reference was read only. No external
 recording-system control, installation, firmware change, or cabling work occurred.
 
+PO UX correction (2026-10-15): `opto_calibration.m` now opens directly with a
+150 px white square on black. Mouse drag and arrows position it, +/- resize
+it, SPACE toggles black/white, ENTER saves, and ESC exits without writing.
+The saved configuration includes `rect` and `size_px`; reopening on the same
+display restores its geometry. There are no physical screen measurement
+prompts or centimeter-size claims. Both acquisition scripts reuse this exact
+rectangle. Serial, timing, triggers, and experimental design are unchanged.
+
 Serial: editable COM5 default in both acquisition scripts; 115200, 8N1, no flow
 control; nonblocking reads; acknowledged command mode followed by Mode 5;
 minimum 25 ms command spacing. No explicit timer reset or event-to-TTL writes.
@@ -40,17 +48,19 @@ Final checks on MATLAB R2023b Update 1 passed:
   duplicate/reversed edges, missing/wrong/late optical reports, delayed
   responses/releases across trial boundaries, missing-onset RT handling,
   missing responses, and MAT/CSV exports including scalar early-failure data.
-- Nine simulated script scenarios: measured patch calibration; optical
-  success; no optical events (expected FAIL); optical ESC with partial data;
-  ten-trial success; missing optical onset with unavailable RT; ESC while
-  waiting for synchronization release; serial disconnection; and overlapping
-  patch rejection. Simulated acquisition scenarios checked cleanup and saves.
+- Eleven simulated script scenarios: pixel calibration with drag, arrow,
+  resize, SPACE, and ENTER controls; ESC with no saved file; ESC preserving
+  an existing file byte-for-byte; optical success; no optical events (expected
+  FAIL); optical ESC with partial data; ten-trial success; missing optical
+  onset with unavailable RT; ESC during synchronization; serial disconnection;
+  and overlapping patch rejection. Tests also check screen-bound clamping,
+  held-key handling, cleanup, and exact saved-geometry reuse by both scripts.
 - MATLAB Code Analyzer: zero findings across all 14 MATLAB source/test files.
   Intentional test-only shared state has explicit analyzer annotations.
 
 The synthetic `input` stub produces an expected built-in-shadowing warning.
 Test code restores the prior MATLAB folder/path. Full console output is in
-`.local/final_checks.log`; test artifacts are ignored by Git. Synthetic test
+`.local/calibration_ux_checks.log`; test artifacts are ignored by Git. Synthetic test
 success does not qualify physical timing or trigger delivery.
 
 Known limits: single selected display/sensor/button, frame-quantized durations,
@@ -61,8 +71,9 @@ context less certain even when hardware RT remains recoverable.
 
 ## Local Git
 
-Branch: `main`. The delivered commit is identified by the local tag `m1`;
-obtain its exact hash with `git rev-parse m1` (also reported in delivery).
+Branch: `main`. Baseline M1 is commit `cbad781153ce7700d2e3aa413cee57fa8b99b026`,
+tagged `m1`. The calibration UX follow-up is the latest commit touching
+`opto_calibration.m`: `git log -1 --format=%H -- opto_calibration.m`.
 No remote is configured and no push is part of this work.
 
 ## Exact next steps for PO acceptance
@@ -70,8 +81,9 @@ No remote is configured and no push is part of this work.
 1. Make the existing Psychtoolbox installation available on the R2023b path;
    check `which Screen` and `which IOPort`. Set the actual COM port in both
    acquisition scripts. Resolve PTB sync failures without disabling checks.
-2. Run `opto_calibration`, enter measured active screen dimensions, position
-   the 4 cm patch, and adjust sensitivity with the existing BBTK functionality.
+2. Run `opto_calibration`, drag/resize the patch under the optical sensor, and
+   press ENTER to save. Check SPACE, arrows, and ESC without saving. Adjust
+   sensitivity with the existing BBTK functionality.
    Record the installed firmware, sensitivity, and smoothing settings. Close
    the BBTK app before running an acquisition script.
 3. Run `opto_50_cycles`; require 50 ON, 50 OFF, all matched in sequence,
