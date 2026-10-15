@@ -10,11 +10,19 @@
 - Serial setup uses acknowledged `X` / `MOD5` commands with documented spacing.
   The hardware clock is never explicitly reset, including after synchronization.
   Existing optical sensitivity and smoothing settings are not altered.
-- PO UX correction: calibration uses a 150 px starting square, mouse drag,
+- PO hotfix: calibration uses a normal, movable 700 x 500 GUI window with
+  normal stacking, leaving the BBTK app usable. It uses a 150 px starting square, mouse drag,
   arrow movement, +/- resize, SPACE toggle, ENTER save, and ESC abort without
   saving. Pixel coordinates/dimensions replace manual screen measurements;
-  no physical centimeter size is claimed. Both acquisition scripts continue
-  loading the same saved rectangle without scaling it.
+  no physical centimeter size is claimed. Non-text entries in PTB's mixed
+  key-name table are normalized before all alias mappings. Controls act only
+  while the calibration window has focus; no keyboard suppression or serial
+  acquisition is used. Calibration-only shielding/sync preferences are restored.
+- Saved `desktop_rect` is window-local geometry plus the current native client
+  origin, including window movement. Subtracting the selected monitor's desktop
+  origin gives `rect`, used unchanged by both full-screen acquisition scripts.
+  Window-local and monitor/window global rectangles are retained for inspection.
+  A patch outside the selected display is rejected before writing configuration.
 - Binary RX journals and hex messages retain original input, including setup,
   malformed lines, and unfinished fragments. Duplicate events are logged rather
   than dropped. No fabricated timestamps, timer unwrapping, or clock alignment.

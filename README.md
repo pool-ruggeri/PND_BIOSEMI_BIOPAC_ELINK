@@ -25,15 +25,19 @@ opto_50_cycles
 simple_task
 ```
 
-- `opto_calibration`: opens full screen on black with a white 150 x 150 pixel
-  square (or restores the saved position/size for that display). Drag it with
+- `opto_calibration`: opens a normal, movable window, approximately 700 x 500
+  pixels, on black with a white 150 x 150 pixel square (or restores the saved
+  position/size for that display). It uses normal stacking so you can work in
+  the BBTK app at the same time. Click the calibration window to use its controls.
+  Drag the square with
   the left mouse button or move it with the arrows. Press + / - to grow/shrink
   by 10 pixels per side; the main =/+ and -/_ keys and keypad + / - work.
   SPACE toggles black/white. ENTER saves `opto_patch.mat` and exits; ESC aborts
   without changing an existing configuration. Keep the patch clear of the
   central fixation/stimulus and synchronization text. No screen measurements
   or console prompts are required. Use the existing BBTK app to adjust optical
-  sensitivity; this script uses no serial port or sensitivity algorithm.
+  sensitivity; this script uses no serial port or sensitivity algorithm. Set
+  `screenNumber` at the top if needed, and keep the square on that display.
 - `opto_50_cycles`: presents 50 white/black cycles, nominally 500 ms per state,
   and reports measured ON/OFF events plus sequence and timing errors. A
   completed presentation can still have a FAIL result. Leave the buttons alone.
@@ -44,10 +48,20 @@ simple_task
 
 The acquisition scripts reuse the saved display, position, dimensions, and RGB
 black `[0 0 0]` / white `[255 255 255]`. Repeat calibration after changing the
-display, its resolution, or scaling. The saved `rect` and `size_px` describe
-pixels; no physical centimeter size is assumed. PTB sync checks stay
-enabled. Visual durations are rounded to the nearest whole refresh interval;
+display, its resolution, or scaling. `desktop_rect` saves absolute desktop
+coordinates using the current window client-area location, including window
+movement. `rect` gives the same position within the selected display for both
+full-screen scripts; `calibration_rect` is the window-local rectangle, and
+`size_px` is its pixel size. Saving rejects a patch outside the selected display.
+No physical centimeter size is assumed. The calibration GUI skips timing
+qualification and restores its prior PTB settings on exit; acquisition sync
+checks remain enabled. Visual durations are rounded to the nearest whole refresh interval;
 actual flip timestamps and missed deadlines are recorded.
+
+The window uses PTB's [GUI window flag](https://psychtoolbox.org/docs/kPsychGUIWindow)
+and [GlobalRect](https://psychtoolbox.org/docs/Screen-GlobalRect) for its live
+client-area position. Calibration controls ignore keystrokes while the BBTK app
+has focus. No keyboard suppression or serial-port ownership is requested by calibration.
 
 ## Serial, timing, and TTL
 

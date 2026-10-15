@@ -15,13 +15,24 @@ The PO's M1 scope is recorded in [DECISIONS.md](DECISIONS.md). All three scripts
 are implemented. The optional Python reference was read only. No external
 recording-system control, installation, firmware change, or cabling work occurred.
 
-PO UX correction (2026-10-15): `opto_calibration.m` now opens directly with a
-150 px white square on black. Mouse drag and arrows position it, +/- resize
+PO hotfix (2026-10-15): `opto_calibration.m` now opens a normal, movable window
+approximately 700 x 500 px, with a 150 px white square on black and normal stacking.
+Mouse drag and arrows position it, +/- resize
 it, SPACE toggles black/white, ENTER saves, and ESC exits without writing.
-The saved configuration includes `rect` and `size_px`; reopening on the same
-display restores its geometry. There are no physical screen measurement
-prompts or centimeter-size claims. Both acquisition scripts reuse this exact
-rectangle. Serial, timing, triggers, and experimental design are unchanged.
+Saving queries the current window client-area origin, including title-bar and
+window movement, to produce absolute `desktop_rect`. Subtracting the monitor's
+desktop origin yields `rect` for both unchanged full-screen acquisition scripts.
+The window-local rectangle, monitor/window global rectangles, and `size_px`
+are retained. The patch must remain on the selected display when saved.
+
+PTB 3.0.19's key-name table can contain numeric empty cells. All calibration
+alias maps now filter non-text entries before using `ismember`. Both other
+scripts and their helpers were inspected: direct `KbName` lookups have no
+analogous mixed-table membership call. GUI controls ignore BBTK keystrokes when
+unfocused. Calibration uses no serial connection or keyboard suppression.
+Normal stacking and skipped timing qualification apply only to this GUI;
+previous PTB preferences are restored even on cancel. Experimental timing,
+XiD acquisition, hardware timestamps, TTL, and trial/cycle logic are unchanged.
 
 Serial: editable COM5 default in both acquisition scripts; 115200, 8N1, no flow
 control; nonblocking reads; acknowledged command mode followed by Mode 5;
@@ -39,7 +50,10 @@ MATLAB R2023b Update 1 runs using its existing network license when network
 access is available. Preferences for checks were confined to `.local/`.
 The initial restricted launch failed to contact the license server; a permitted
 retry succeeded. `Screen` and `IOPort` did not resolve on the default R2023b
-path. No software was installed and no real PTB display or serial port was opened.
+path. Agent checks installed no software and opened no real PTB display or
+serial port. The PO's first laboratory attempt on the previous build reported
+the full-screen behavior and mixed-cell keyboard error. This corrected build
+has not yet been physically retested.
 
 Final checks on MATLAB R2023b Update 1 passed:
 
@@ -48,19 +62,24 @@ Final checks on MATLAB R2023b Update 1 passed:
   duplicate/reversed edges, missing/wrong/late optical reports, delayed
   responses/releases across trial boundaries, missing-onset RT handling,
   missing responses, and MAT/CSV exports including scalar early-failure data.
-- Eleven simulated script scenarios: pixel calibration with drag, arrow,
+- Twelve simulated script scenarios: primary/secondary-display calibration with drag, arrow,
   resize, SPACE, and ENTER controls; ESC with no saved file; ESC preserving
   an existing file byte-for-byte; optical success; no optical events (expected
   FAIL); optical ESC with partial data; ten-trial success; missing optical
   onset with unavailable RT; ESC during synchronization; serial disconnection;
-  and overlapping patch rejection. Tests also check screen-bound clamping,
-  held-key handling, cleanup, and exact saved-geometry reuse by both scripts.
+  and overlapping patch rejection. A focused keyboard regression reproduces
+  the original mixed-cell failure, then runs the corrected controls with that
+  same mixed table. Coordinate checks include client decorations, actual window
+  movement, a secondary monitor with negative desktop Y, and identical desktop
+  patch rectangles in calibration and both full-screen scripts. GUI flags,
+  normal stacking, BBTK focus exclusion, preference restoration, held keys,
+  bounds, cleanup, and byte-for-byte preservation on ESC are also checked.
 - MATLAB Code Analyzer: zero findings across all 14 MATLAB source/test files.
   Intentional test-only shared state has explicit analyzer annotations.
 
 The synthetic `input` stub produces an expected built-in-shadowing warning.
 Test code restores the prior MATLAB folder/path. Full console output is in
-`.local/calibration_ux_checks.log`; test artifacts are ignored by Git. Synthetic test
+`.local/calibration_hotfix_checks.log`; test artifacts are ignored by Git. Synthetic test
 success does not qualify physical timing or trigger delivery.
 
 Known limits: single selected display/sensor/button, frame-quantized durations,
@@ -72,7 +91,7 @@ context less certain even when hardware RT remains recoverable.
 ## Local Git
 
 Branch: `main`. Baseline M1 is commit `cbad781153ce7700d2e3aa413cee57fa8b99b026`,
-tagged `m1`. The calibration UX follow-up is the latest commit touching
+tagged `m1`. Prior pixel UX correction: `0ca0c32`. The window/keyboard hotfix is the latest commit touching
 `opto_calibration.m`: `git log -1 --format=%H -- opto_calibration.m`.
 No remote is configured and no push is part of this work.
 
@@ -81,9 +100,11 @@ No remote is configured and no push is part of this work.
 1. Make the existing Psychtoolbox installation available on the R2023b path;
    check `which Screen` and `which IOPort`. Set the actual COM port in both
    acquisition scripts. Resolve PTB sync failures without disabling checks.
-2. Run `opto_calibration`, drag/resize the patch under the optical sensor, and
-   press ENTER to save. Check SPACE, arrows, and ESC without saving. Adjust
-   sensitivity with the existing BBTK functionality.
+2. Run `opto_calibration`. Check that the normal window moves and allows
+   switching to the BBTK app. Move the window, drag/resize the patch under the
+   sensor, and adjust sensitivity in BBTK. Refocus calibration and check SPACE,
+   arrows, ENTER save, and ESC without saving. Confirm that the saved physical
+   patch position is reproduced by both full-screen scripts on the same display.
    Record the installed firmware, sensitivity, and smoothing settings. Close
    the BBTK app before running an acquisition script.
 3. Run `opto_50_cycles`; require 50 ON, 50 OFF, all matched in sequence,

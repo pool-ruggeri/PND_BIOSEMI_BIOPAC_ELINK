@@ -10,7 +10,7 @@ files = dir(fullfile(root, '*.m'));
 for k = 1:numel(files), copyfile(fullfile(root, files(k).name), project); end
 names = {'Screen', 'IOPort', 'GetSecs', 'WaitSecs', 'KbCheck', 'KbName', ...
     'AssertOpenGL', 'ListenChar', 'HideCursor', 'ShowCursor', 'Priority', ...
-    'DrawFormattedText', 'GetMouse', 'input'};
+    'DrawFormattedText', 'GetMouse', 'kPsychGUIWindow', 'input'};
 for k = 1:numel(names)
     fid = fopen(fullfile(stubs, [names{k} '.m']), 'w');
     assert(fid >= 0);
@@ -25,13 +25,31 @@ addpath(stubs, '-begin'); cd(project);
 global M1_MOCK %#ok<GVMIS> Shared by the isolated generated wrappers only.
 reset_mock('calibration_abort'); execute_script('opto_calibration');
 assert(~isfile(fullfile(project, 'opto_patch.mat')) && ~M1_MOCK.displayOpen);
+assert(M1_MOCK.preferences.WindowShieldingLevel == 2000 && M1_MOCK.preferences.SkipSyncTests == 0);
+% Focused regression: the old unfiltered ismember call rejects this PTB-style
+% mixed table. All calibration controls below run against that same table.
+rawNames = KbName('KeyNames'); rejected = false;
+try
+    ismember(rawNames, {'Return'});
+catch
+    rejected = true;
+end
+assert(rejected && any(cellfun(@(name) ~ischar(name), rawNames)));
+reset_mock('calibration_primary'); execute_script('opto_calibration');
+primary = load(fullfile(project, 'opto_patch.mat'));
+assert(isequal(primary.patch.desktop_rect, [408 321 568 481]));
+assert(isequal(primary.patch.rect, primary.patch.desktop_rect));
 reset_mock('calibration'); execute_script('opto_calibration');
 saved = load(fullfile(project, 'opto_patch.mat'));
-assert(isequal(saved.patch.rect, [300 200 460 360]) && isequal(saved.patch.size_px, [160 160]));
+assert(isequal(saved.patch.rect, [408 321 568 481]) && isequal(saved.patch.size_px, [160 160]));
+assert(isequal(saved.patch.calibration_rect, [300 200 460 360]));
+assert(isequal(saved.patch.desktop_rect, [2328 201 2488 361]));
+assert(isequal(saved.patch.calibration_window_rect(1:2), [2028 1]));
+assert(isequal(saved.patch.screen_global_rect, [1920 -120 3840 960]));
 assert(isequal(saved.patch.resolution, [1920 1080]));
 assert(isequal(M1_MOCK.history(1).rect, [20 20 170 170])); % Initial 150 px square.
 assert(isequal(M1_MOCK.history(2).rect, [25 20 175 170])); % Arrow key.
-assert(isequal(M1_MOCK.history(4).rect, [1770 930 1920 1080])); % Drag/clamp.
+assert(isequal(M1_MOCK.history(4).rect, [534 311 684 461])); % Client-area clamp.
 assert(isequal(M1_MOCK.history(5).rect, [0 0 150 150]));
 assert(~M1_MOCK.history(3).white && ~M1_MOCK.history(4).white); % SPACE held.
 assert(M1_MOCK.history(10).white); % Second SPACE toggles back to white.
@@ -41,6 +59,10 @@ assert(diff(M1_MOCK.history(9).rect([1 3])) == 150); % Minus.
 assert(isequal(saved.patch.black, [0 0 0]) && isequal(saved.patch.white, [255 255 255]));
 assert(~M1_MOCK.displayOpen && M1_MOCK.cursorVisible && M1_MOCK.listenChar == 0);
 assert(isempty(M1_MOCK.commands));
+assert(M1_MOCK.backgroundPolls == 2); % BBTK ENTER/ESC/SPACE/arrows ignored.
+assert(M1_MOCK.preferences.WindowShieldingLevel == 2000 && M1_MOCK.preferences.SkipSyncTests == 0);
+last = M1_MOCK.history(end);
+assert(isequal(last.rect + repmat(last.origin, 1, 2), saved.patch.desktop_rect));
 bytesBefore = read_bytes(fullfile(project, 'opto_patch.mat'));
 reset_mock('calibration_abort'); execute_script('opto_calibration');
 assert(isequal(bytesBefore, read_bytes(fullfile(project, 'opto_patch.mat'))));
@@ -53,6 +75,8 @@ assert(numel(r.flips) == 100 && ~M1_MOCK.serialOpen && ~M1_MOCK.displayOpen);
 assert(isequal(M1_MOCK.commands, {'X', sprintf('MOD5\r\n')}));
 assert(isequal(r.patch, saved.patch));
 assert(all(arrayfun(@(f) isequal(f.rect, saved.patch.rect), ...
+    M1_MOCK.history([M1_MOCK.history.white]))));
+assert(all(arrayfun(@(f) isequal(f.rect + repmat(f.origin, 1, 2), saved.patch.desktop_rect), ...
     M1_MOCK.history([M1_MOCK.history.white]))));
 reset_mock('cycles_silent'); execute_script('opto_50_cycles');
 r = latest_run(project, 'opto_50_cycles');
@@ -71,6 +95,8 @@ assert(sum(strcmp({r.messages.label}, 'SYNC_BUTTON_PRESS')) == 1);
 assert(~M1_MOCK.serialOpen && ~M1_MOCK.displayOpen);
 assert(isequal(r.patch, saved.patch));
 assert(all(arrayfun(@(f) isequal(f.rect, saved.patch.rect), ...
+    M1_MOCK.history([M1_MOCK.history.white]))));
+assert(all(arrayfun(@(f) isequal(f.rect + repmat(f.origin, 1, 2), saved.patch.desktop_rect), ...
     M1_MOCK.history([M1_MOCK.history.white]))));
 reset_mock('task_missing_onset'); execute_script('simple_task');
 r = latest_run(project, 'simple_task');
@@ -91,7 +117,8 @@ reset_mock('task_bad_patch'); execute_script('simple_task');
 r = latest_run(project, 'simple_task');
 assert(strcmp(r.status, 'error') && contains(r.error, 'central stimulus'));
 assert(~M1_MOCK.serialOpen && ~M1_MOCK.displayOpen);
-fprintf('PASS: 11 simulated script scenarios. No physical hardware validation.\n');
+fprintf('PASS: 12 simulated script scenarios, including mixed key-name and moved-window regressions.\n');
+fprintf('No physical GUI/hardware validation.\n');
 end
 
 function bytes = read_bytes(file)
@@ -121,11 +148,16 @@ end
 function reset_mock(scenario)
 global M1_MOCK %#ok<GVMIS>
 previous = dir(fullfile(pwd, 'data', '*'));
+screenGlobal = [1920 -120 3840 960];
+if strcmp(scenario, 'calibration_primary'), screenGlobal = [0 0 1920 1080]; end
 M1_MOCK = struct('dispatch', @dispatch, 'scenario', scenario, 'time', 0, ...
     'displayOpen', false, 'serialOpen', false, 'mode5', false, ...
     'draftWhite', false, 'white', false, 'draftSync', false, 'syncSent', false, ...
     'draftRect', [], 'cursorVisible', true, 'listenChar', 0, ...
-    'history', struct('rect', {}, 'white', {}), ...
+    'history', struct('rect', {}, 'white', {}, 'origin', {}), ...
+    'preferences', struct('WindowShieldingLevel', 2000, 'SkipSyncTests', 0), ...
+    'screenGlobal', screenGlobal, 'windowGlobal', [], 'windowLocal', [], ...
+    'windowMoved', false, 'backgroundPolls', 0, ...
     'flips', 0, 'onsets', 0, 'inputs', 0, 'commands', {{}}, ...
     'previousFolders', {{previous.name}}, ...
     'queue', struct('ready', {}, 'bytes', {}));
@@ -142,9 +174,13 @@ switch name
         M1_MOCK.time = M1_MOCK.time + varargin{end};
     case 'input'
         error('Calibration must not prompt for input.');
+    case 'kPsychGUIWindow'
+        varargout = {32};
     case 'KbName'
-        keys = {'ESCAPE', 'space', 'RightArrow', 'LeftArrow', 'DownArrow', 'UpArrow', ...
+        keys = repmat({[]}, 1, 256); % PTB leaves unnamed entries as numeric [].
+        keys(1:11) = {'ESCAPE', 'space', 'RightArrow', 'LeftArrow', 'DownArrow', 'UpArrow', ...
             'Return', '=+', '-_', '+', '-'};
+        keys{128} = 42; % Any non-text slot must be ignored safely.
         if strcmp(varargin{1}, 'UnifyKeyNames'), return; end
         if strcmp(varargin{1}, 'KeyNames'), varargout = {keys}; return; end
         varargout = {find(strcmp(keys, varargin{1}))};
@@ -161,6 +197,9 @@ switch name
                 keys(2) = ismember(frame, [2 3 9]);
                 keys(8) = ismember(frame, [6 7 10]); keys(11) = frame == 8;
                 keys(7) = frame == 0 || frame >= 12;
+                if frame == 8 && M1_MOCK.backgroundPolls < 2
+                    keys(:) = false; keys([1 2 3 7 8]) = true;
+                end
             end
         elseif strcmp(s, 'cycles_abort')
             keys(1) = M1_MOCK.time > 3;
@@ -169,8 +208,15 @@ switch name
         end
         varargout = {any(keys), M1_MOCK.time, keys};
     case 'GetMouse'
-        frame = M1_MOCK.flips; point = [0 0]; down = false;
-        if strcmp(s, 'calibration')
+        frame = M1_MOCK.flips; point = [0 0]; down = false; focused = true;
+        if startsWith(s, 'calibration') && ~strcmp(s, 'calibration_abort')
+            if frame >= 8 && ~M1_MOCK.windowMoved
+                M1_MOCK.windowGlobal = M1_MOCK.windowGlobal + [40 30 40 30];
+                M1_MOCK.windowMoved = true;
+            end
+            if frame == 8 && M1_MOCK.backgroundPolls < 2
+                focused = false; M1_MOCK.backgroundPolls = M1_MOCK.backgroundPolls + 1;
+            end
             switch frame
                 case 2, point = [35 35]; down = true;
                 case 3, point = [3000 2000]; down = true;
@@ -180,7 +226,7 @@ switch name
                 case 8, point = [1700 1000]; down = true;
             end
         end
-        varargout = {point(1), point(2), [down false false]};
+        varargout = {point(1), point(2), [down false false], focused};
     case 'ListenChar'
         M1_MOCK.listenChar = varargin{1};
     case 'HideCursor'
@@ -191,9 +237,39 @@ switch name
         M1_MOCK.draftSync = true;
     case 'Screen'
         switch varargin{1}
-            case 'Screens', varargout = {0};
+            case 'Screens'
+                screens = [0 2];
+                if strcmp(s, 'calibration_primary'), screens = 0; end
+                varargout = {screens};
+            case 'Preference'
+                old = M1_MOCK.preferences.(varargin{2});
+                if numel(varargin) >= 3, M1_MOCK.preferences.(varargin{2}) = varargin{3}; end
+                varargout = {old};
+            case 'Rect'
+                local = [0 0 1920 1080];
+                if varargin{2} == 100, local = M1_MOCK.windowLocal; end
+                varargout = {local};
+            case 'GlobalRect'
+                globalRect = M1_MOCK.screenGlobal;
+                if varargin{2} == 100, globalRect = M1_MOCK.windowGlobal; end
+                varargout = {globalRect};
             case 'OpenWindow'
-                M1_MOCK.displayOpen = true; varargout = {1, [0 0 1920 1080]};
+                if startsWith(s, 'calibration')
+                    assert(numel(varargin) == 10 && varargin{10} == 32, 'Calibration must use kPsychGUIWindow.');
+                    assert(isequal(varargin{4}(3:4) - varargin{4}(1:2), [700 500]));
+                    assert(M1_MOCK.preferences.WindowShieldingLevel == 0 && M1_MOCK.listenChar == 0);
+                    % Native client origin includes borders/title bar, unlike
+                    % the requested outer-window rectangle.
+                    origin = varargin{4}(1:2) + [8 31];
+                    M1_MOCK.windowLocal = [0 0 684 461];
+                    M1_MOCK.windowGlobal = [origin origin + [684 461]];
+                else
+                    assert(numel(varargin) == 3, 'Acquisition must remain full screen.');
+                    assert(M1_MOCK.preferences.WindowShieldingLevel == 2000 && M1_MOCK.preferences.SkipSyncTests == 0);
+                    M1_MOCK.windowLocal = [0 0 1920 1080];
+                    M1_MOCK.windowGlobal = M1_MOCK.screenGlobal;
+                end
+                M1_MOCK.displayOpen = true; varargout = {100, M1_MOCK.windowLocal};
             case 'GetFlipInterval', varargout = {1/60};
             case 'FillRect'
                 M1_MOCK.draftWhite = any(varargin{3} > 0);
@@ -205,7 +281,7 @@ switch name
                 vbl = (floor(earliest * 60 + 1e-8) + 1) / 60;
                 M1_MOCK.time = vbl + 0.0001; M1_MOCK.flips = M1_MOCK.flips + 1;
                 M1_MOCK.history(end + 1) = struct('rect', M1_MOCK.draftRect, ...
-                    'white', M1_MOCK.draftWhite);
+                    'white', M1_MOCK.draftWhite, 'origin', M1_MOCK.windowGlobal(1:2));
                 if M1_MOCK.mode5 && M1_MOCK.draftWhite ~= M1_MOCK.white
                     edge = 'R';
                     if M1_MOCK.draftWhite
