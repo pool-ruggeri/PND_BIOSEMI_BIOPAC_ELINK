@@ -1,11 +1,9 @@
-function patch = m1_patch(root)
-%M1_PATCH Load the one calibration shared by the acquisition scripts.
-file = fullfile(root, 'opto_patch.mat');
-assert(isfile(file), 'M1:Calibration', 'Run opto_calibration first: %s', file);
-saved = load(file, 'patch');
-assert(isfield(saved, 'patch'), 'M1:Calibration', 'Invalid patch file.');
-patch = saved.patch;
-assert(patch.version == 1 && isequal(patch.black, [0 0 0]) && ...
-    isequal(patch.white, [255 255 255]), 'M1:Calibration', ...
-    'Incompatible patch colors/configuration. Repeat opto_calibration.');
+function patch = m1_patch(window, screenNumber)
+%M1_PATCH Fixed 150 px bottom-left square; no calibration file is read.
+[winW, winH] = Screen('WindowSize', window);
+assert(winW >= 150 && winH >= 150, 'M1:Display', ...
+    'The display must be at least 150 x 150 pixels for the fixed optical patch.');
+patch = struct('version', 1, 'screen', screenNumber, 'resolution', [winW winH], ...
+    'black', [0 0 0], 'white', [255 255 255], ...
+    'rect', [0 winH - 150 150 winH], 'size_px', [150 150]);
 end

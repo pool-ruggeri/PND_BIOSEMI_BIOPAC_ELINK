@@ -17,15 +17,14 @@ to the existing Psychtoolbox installation. Set `comPort = 'COM5'` at the top of
 Device Manager. COM5 is a starting value from the optional Python reference,
 not a detected port. Close other applications using that port before acquisition.
 
-Run the following individually, in order:
+Run either acquisition script directly; calibration is optional:
 
 ```matlab
-opto_calibration
 opto_50_cycles
 simple_task
 ```
 
-- `opto_calibration`: opens a normal, movable window, approximately 700 x 500
+- `opto_calibration` (optional): opens a normal, movable window, approximately 700 x 500
   pixels, on black with a white 150 x 150 pixel square (or restores the saved
   position/size for that display). It uses normal stacking so you can work in
   the BBTK app at the same time. Click the calibration window to use its controls.
@@ -33,8 +32,8 @@ simple_task
   the left mouse button or move it with the arrows. Press + / - to grow/shrink
   by 10 pixels per side; the main =/+ and -/_ keys and keypad + / - work.
   SPACE toggles black/white. ENTER saves `opto_patch.mat` and exits; ESC aborts
-  without changing an existing configuration. Keep the patch clear of the
-  central fixation/stimulus and synchronization text. No screen measurements
+  without changing an existing configuration. Its saved position and dimensions
+  affect this utility only; acquisition ignores `opto_patch.mat`. No screen measurements
   or console prompts are required. Use the existing BBTK app to adjust optical
   sensitivity; this script uses no serial port or sensitivity algorithm. Set
   `screenNumber` at the top if needed, and keep the square on that display.
@@ -46,13 +45,17 @@ simple_task
   1 s fixation, 500 ms stimulus, a response window through 1500 ms after onset,
   and 500 ms ITI. Respond with Button 1. ESC saves partial data and exits.
 
-The acquisition scripts reuse the saved display, position, dimensions, and RGB
-black `[0 0 0]` / white `[255 255 255]`. Repeat calibration after changing the
-display, its resolution, or scaling. `desktop_rect` saves absolute desktop
-coordinates using the current window client-area location, including window
-movement. `rect` gives the same position within the selected display for both
-full-screen scripts; `calibration_rect` is the window-local rectangle, and
-`size_px` is its pixel size. Saving rejects a patch outside the selected display.
+Both acquisition scripts use the same fixed **150 x 150 pixel square at the
+exact bottom-left corner** of their full-screen display. `m1_patch` calculates
+`[0, winH - 150, 150, winH]` from the actual window dimensions and rejects a
+display smaller than 150 pixels in either dimension. No saved calibration file,
+position, size, or display selection is read. The selected screen is
+`max(Screen('Screens'))`; confirm it is the experimental monitor.
+
+The patch uses RGB black `[0 0 0]` and white `[255 255 255]` in all scripts.
+It remains black during synchronization, fixation, and ITI; it is white only
+during each stimulus/white cycle. The actual fixed geometry is recorded in
+`session.mat`. Calibration utility metadata remains independent of acquisition.
 No physical centimeter size is assumed. The calibration GUI skips timing
 qualification and restores its prior PTB settings on exit. By PO decision,
 both acquisition scripts automatically set `SkipSyncTests=1` before opening a
@@ -138,6 +141,10 @@ path afterwards. Do not add `.local` or this whole repository recursively to
 the MATLAB path. See [handoff](docs/PROJECT_HANDOFF.md) for actual results.
 
 If the port cannot open, check Device Manager and close the BBTK app/terminals.
+The known COM5 conflict is the BBTK app owning the port. Failed acquisition
+reports the port error, closes resources, and skips cleanup drawing after a
+serial failure. Final redraws also check that the window is still open. The
+scripts do not terminate the BBTK app automatically.
 Missing mode acknowledgement stops acquisition and saves the error. For missing
 optical events, check patch placement, sensor sensitivity, and the BBTK sensor
 check utility. The acquisition scripts already set `SkipSyncTests=1`; persistent

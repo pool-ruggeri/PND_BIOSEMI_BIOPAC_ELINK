@@ -2,7 +2,7 @@ function m1_cleanup(io, restoreDisplay)
 %M1_CLEANUP Best-effort cleanup, also safe during an exception.
 if nargin < 2, restoreDisplay = true; end
 if ~isempty(io)
-    if ~isempty(io.handle)
+    if ~isempty(io.handle) && io.handle >= 0
         try
             IOPort('Close', io.handle);
         catch

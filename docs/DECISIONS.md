@@ -10,6 +10,13 @@
 - Serial setup uses acknowledged `X` / `MOD5` commands with documented spacing.
   The hardware clock is never explicitly reset, including after synchronization.
   Existing optical sensitivity and smoothing settings are not altered.
+- PO decision (2026-10-16): acquisition uses a fixed 150 x 150 px square in the
+  exact bottom-left corner, `[0, winH - 150, 150, winH]`. The shared `m1_patch`
+  computes it from the open window size; displays too small to fit are rejected.
+  Neither acquisition script reads calibration output. Calibration is an
+  unchanged optional BBTK sensitivity utility. Its saved geometry has no effect
+  on acquisition. Known COM5 contention is handled without protocol changes or
+  terminating BBTK: report the failure, close resources, and avoid stale redraws.
 - PO decision (2026-10-16): after a Windows 10 VBL synchronization failure,
   both acquisition scripts set `SkipSyncTests=1` before opening any window and
   restore the prior preference on completion, errors, and aborts. The display
@@ -27,7 +34,7 @@
   acquisition is used. Calibration-only shielding/sync preferences are restored.
 - Saved `desktop_rect` is window-local geometry plus the current native client
   origin, including window movement. Subtracting the selected monitor's desktop
-  origin gives `rect`, used unchanged by both full-screen acquisition scripts.
+  origin gives the calibration utility's `rect`, which acquisition ignores.
   Window-local and monitor/window global rectangles are retained for inspection.
   A patch outside the selected display is rejected before writing configuration.
 - Binary RX journals and hex messages retain original input, including setup,

@@ -23,6 +23,27 @@ oldPath = path; oldFolder = pwd;
 cleanup = onCleanup(@() restore(oldPath, oldFolder));
 addpath(stubs, '-begin'); cd(project);
 global M1_MOCK %#ok<GVMIS> Shared by the isolated generated wrappers only.
+% Both acquisition scripts must work before calibration has ever run.
+assert(~isfile(fullfile(project, 'opto_patch.mat')));
+reset_mock('cycles'); execute_script('opto_50_cycles');
+r = latest_run(project, 'opto_50_cycles');
+assert(strcmp(r.summary.result, 'PASS'));
+assert_fixed_patch(r);
+reset_mock('task'); execute_script('simple_task');
+r = latest_run(project, 'simple_task');
+assert(r.summary.valid_responses == 10 && all([r.trials.rt_ms] == 250));
+assert_fixed_patch(r);
+assert(~isfile(fullfile(project, 'opto_patch.mat')));
+% Geometry follows the actual window size and rejects an undersized display.
+reset_mock('geometry'); M1_MOCK.windowLocal = [0 0 1024 768];
+p = m1_patch(100, 2); assert(isequal(p.rect, [0 618 150 768]));
+M1_MOCK.windowLocal = [0 0 149 200]; rejected = false;
+try
+    m1_patch(100, 2);
+catch problem
+    rejected = strcmp(problem.identifier, 'M1:Display');
+end
+assert(rejected);
 reset_mock('calibration_abort'); execute_script('opto_calibration');
 assert(~isfile(fullfile(project, 'opto_patch.mat')) && ~M1_MOCK.displayOpen);
 assert(M1_MOCK.preferences.WindowShieldingLevel == 2000 && M1_MOCK.preferences.SkipSyncTests == 0);
@@ -73,11 +94,10 @@ assert(strcmp(r.status, 'complete') && strcmp(r.summary.result, 'PASS'));
 assert(r.summary.detected_on == 50 && r.summary.detected_off == 50);
 assert(numel(r.flips) == 100 && ~M1_MOCK.serialOpen && ~M1_MOCK.displayOpen);
 assert(isequal(M1_MOCK.commands, {'X', sprintf('MOD5\r\n')}));
-assert(isequal(r.patch, saved.patch));
-assert(all(arrayfun(@(f) isequal(f.rect, saved.patch.rect), ...
-    M1_MOCK.history([M1_MOCK.history.white]))));
-assert(all(arrayfun(@(f) isequal(f.rect + repmat(f.origin, 1, 2), saved.patch.desktop_rect), ...
-    M1_MOCK.history([M1_MOCK.history.white]))));
+assert_fixed_patch(r); % Saved calibration has a different position and size.
+assert(isequal(bytesBefore, read_bytes(fullfile(project, 'opto_patch.mat'))));
+assert(isequal([M1_MOCK.history(2:101).white], repmat([true false], 1, 50)));
+assert(all(abs(diff([r.flips.onset_ptb]) - 0.5) < 1e-6));
 reset_mock('cycles_silent'); M1_MOCK.preferences.SkipSyncTests = 1;
 execute_script('opto_50_cycles');
 r = latest_run(project, 'opto_50_cycles');
@@ -95,11 +115,8 @@ assert(all([r.trials.rt_ms] == 250) && all(isfinite([r.trials.button_release_ms]
 assert(r.sync.press_tpad_ms < r.trials(1).optical_on_ms);
 assert(sum(strcmp({r.messages.label}, 'SYNC_BUTTON_PRESS')) == 1);
 assert(~M1_MOCK.serialOpen && ~M1_MOCK.displayOpen);
-assert(isequal(r.patch, saved.patch));
-assert(all(arrayfun(@(f) isequal(f.rect, saved.patch.rect), ...
-    M1_MOCK.history([M1_MOCK.history.white]))));
-assert(all(arrayfun(@(f) isequal(f.rect + repmat(f.origin, 1, 2), saved.patch.desktop_rect), ...
-    M1_MOCK.history([M1_MOCK.history.white]))));
+assert_fixed_patch(r);
+assert(isequal(bytesBefore, read_bytes(fullfile(project, 'opto_patch.mat'))));
 reset_mock('task_missing_onset'); execute_script('simple_task');
 r = latest_run(project, 'simple_task');
 assert(strcmp(r.status, 'complete') && isnan(r.trials(3).rt_ms));
@@ -124,14 +141,50 @@ execute_script('simple_task');
 r = latest_run(project, 'simple_task');
 assert(strcmp(r.status, 'error') && contains(r.error, 'Injected window opening failure'));
 assert(~M1_MOCK.serialOpen && ~M1_MOCK.displayOpen);
-saved.patch.rect = [900 480 1045 624]; patch = saved.patch;
-save(fullfile(project, 'opto_patch.mat'), 'patch');
-reset_mock('task_bad_patch'); execute_script('simple_task');
+% Stale/malformed utility output must not affect acquisition.
+unrelated = 1; save(fullfile(project, 'opto_patch.mat'), 'unrelated');
+reset_mock('task_ignored_patch'); execute_script('simple_task');
 r = latest_run(project, 'simple_task');
-assert(strcmp(r.status, 'error') && contains(r.error, 'central stimulus'));
+assert(strcmp(r.status, 'complete') && r.summary.valid_responses == 10);
+assert_fixed_patch(r);
 assert(~M1_MOCK.serialOpen && ~M1_MOCK.displayOpen);
-fprintf('PASS: 14 simulated script scenarios, including sync preference restoration on completion, abort, and errors.\n');
+for scenario = {'cycles_serial_error', 'cycles_serial_error_closed', ...
+        'task_serial_error', 'task_serial_error_closed'}
+    reset_mock(scenario{1});
+    script = 'simple_task';
+    if startsWith(scenario{1}, 'cycles'), script = 'opto_50_cycles'; end
+    execute_script(script);
+    r = latest_run(project, script);
+    assert(strcmp(r.status, 'error') && contains(r.error, 'COM5'));
+    assert(contains(r.error, 'Close the BBTK app'));
+    assert(isempty(M1_MOCK.commands) && ~M1_MOCK.serialOpen && ~M1_MOCK.displayOpen);
+end
+for scenario = {'cycles_flip_error', 'task_flip_error'}
+    reset_mock(scenario{1});
+    script = 'simple_task';
+    if startsWith(scenario{1}, 'cycles'), script = 'opto_50_cycles'; end
+    execute_script(script);
+    r = latest_run(project, script);
+    assert(strcmp(r.status, 'error') && contains(r.error, 'Injected display closure'));
+    assert(~M1_MOCK.serialOpen && ~M1_MOCK.displayOpen);
+end
+fprintf('PASS: 22 simulated script scenarios plus fixed-geometry bounds checks.\n');
 fprintf('No physical GUI/hardware validation.\n');
+end
+
+function assert_fixed_patch(run)
+global M1_MOCK %#ok<GVMIS>
+assert(isequal(run.patch.rect, [0 930 150 1080]));
+assert(isequal(run.patch.size_px, [150 150]) && isequal(run.patch.resolution, [1920 1080]));
+assert(isequal(run.patch.black, [0 0 0]) && isequal(run.patch.white, [255 255 255]));
+assert(~M1_MOCK.history(1).white);
+hasRect = arrayfun(@(f) ~isempty(f.rect), M1_MOCK.history);
+assert(all(arrayfun(@(f) isequal(f.rect, run.patch.rect), M1_MOCK.history(hasRect))));
+assert(sum([M1_MOCK.history.white]) == sum(strcmp({run.flips.expected_edge}, 'P')));
+assert(isequal(M1_MOCK.commands, {'X', sprintf('MOD5\r\n')})); % No software TTL.
+if strcmp(run.script, 'simple_task')
+    assert(isequal([M1_MOCK.history.white], strcmp({M1_MOCK.history.phase}, 'stimulus')));
+end
 end
 
 function bytes = read_bytes(file)
@@ -143,9 +196,16 @@ end
 function execute_script(name)
 global M1_MOCK %#ok<GVMIS>
 previousSync = M1_MOCK.preferences.SkipSyncTests;
+openFiles = fopen('all');
 output = evalc(name); % Execute the real script copy with its own local functions.
 fprintf('%s', output);
 assert(M1_MOCK.preferences.SkipSyncTests == previousSync, 'SkipSyncTests was not restored.');
+assert(isequal(fopen('all'), openFiles), 'A journal file was left open.');
+assert(M1_MOCK.invalidDraws == 0 && M1_MOCK.invalidSerialCloses == 0);
+if contains(M1_MOCK.scenario, 'serial_error')
+    assert(count(output, 'tPAD serial failure on COM5:') == 1);
+    assert(~contains(output, 'Invalid window'));
+end
 if ~strcmp(name, 'opto_calibration')
     assert(contains(output, 'Visual synchronization tests are disabled (SkipSyncTests=1).'));
     assert(contains(output, 'Screen(''Flip'') timestamps are not yet scientifically qualified.'));
@@ -175,7 +235,8 @@ M1_MOCK = struct('dispatch', @dispatch, 'scenario', scenario, 'time', 0, ...
     'displayOpen', false, 'serialOpen', false, 'mode5', false, ...
     'draftWhite', false, 'white', false, 'draftSync', false, 'syncSent', false, ...
     'draftRect', [], 'cursorVisible', true, 'listenChar', 0, ...
-    'history', struct('rect', {}, 'white', {}, 'origin', {}), ...
+    'history', struct('rect', {}, 'white', {}, 'origin', {}, 'phase', {}), ...
+    'draftPhase', '', 'invalidDraws', 0, 'invalidSerialCloses', 0, ...
     'preferences', struct('WindowShieldingLevel', 2000, 'SkipSyncTests', 0), ...
     'screenGlobal', screenGlobal, 'windowGlobal', [], 'windowLocal', [], ...
     'windowMoved', false, 'backgroundPolls', 0, ...
@@ -255,7 +316,7 @@ switch name
     case 'ShowCursor'
         M1_MOCK.cursorVisible = true;
     case 'DrawFormattedText'
-        M1_MOCK.draftSync = true;
+        M1_MOCK.draftSync = true; M1_MOCK.draftPhase = 'sync';
     case 'Screen'
         switch varargin{1}
             case 'Screens'
@@ -274,6 +335,11 @@ switch name
                 globalRect = M1_MOCK.screenGlobal;
                 if varargin{2} == 100, globalRect = M1_MOCK.windowGlobal; end
                 varargout = {globalRect};
+            case 'WindowSize'
+                varargout = {M1_MOCK.windowLocal(3), M1_MOCK.windowLocal(4)};
+            case 'Windows'
+                handles = []; if M1_MOCK.displayOpen, handles = 100; end
+                varargout = {handles};
             case 'OpenWindow'
                 if startsWith(s, 'calibration')
                     assert(numel(varargin) == 10 && varargin{10} == 32, 'Calibration must use kPsychGUIWindow.');
@@ -294,16 +360,32 @@ switch name
                 M1_MOCK.displayOpen = true; varargout = {100, M1_MOCK.windowLocal};
             case 'GetFlipInterval', varargout = {1/60};
             case 'FillRect'
+                if ~M1_MOCK.displayOpen
+                    M1_MOCK.invalidDraws = M1_MOCK.invalidDraws + 1;
+                    error('Invalid window in FillRect.');
+                end
+                assert(isequal(varargin{3}, [0 0 0]) || isequal(varargin{3}, [255 255 255]));
                 M1_MOCK.draftWhite = any(varargin{3} > 0);
                 M1_MOCK.draftRect = [];
+                if numel(varargin) == 3, M1_MOCK.draftPhase = 'blank'; end
                 if numel(varargin) >= 4, M1_MOCK.draftRect = varargin{4}; end
+            case 'DrawLines', M1_MOCK.draftPhase = 'fixation';
+            case 'FillOval', M1_MOCK.draftPhase = 'stimulus';
             case 'Flip'
+                if ~M1_MOCK.displayOpen
+                    M1_MOCK.invalidDraws = M1_MOCK.invalidDraws + 1;
+                    error('Invalid window in Flip.');
+                end
+                if endsWith(s, '_flip_error') && M1_MOCK.draftWhite
+                    M1_MOCK.displayOpen = false; error('Injected display closure');
+                end
                 earliest = M1_MOCK.time;
                 if numel(varargin) >= 3, earliest = max(earliest, varargin{3}); end
                 vbl = (floor(earliest * 60 + 1e-8) + 1) / 60;
                 M1_MOCK.time = vbl + 0.0001; M1_MOCK.flips = M1_MOCK.flips + 1;
                 M1_MOCK.history(end + 1) = struct('rect', M1_MOCK.draftRect, ...
-                    'white', M1_MOCK.draftWhite, 'origin', M1_MOCK.windowGlobal(1:2));
+                    'white', M1_MOCK.draftWhite, 'origin', M1_MOCK.windowGlobal(1:2), ...
+                    'phase', M1_MOCK.draftPhase);
                 if M1_MOCK.mode5 && M1_MOCK.draftWhite ~= M1_MOCK.white
                     edge = 'R';
                     if M1_MOCK.draftWhite
@@ -331,6 +413,11 @@ switch name
     case 'IOPort'
         switch varargin{1}
             case 'OpenSerialPort'
+                if contains(s, 'serial_error')
+                    if endsWith(s, '_closed'), M1_MOCK.displayOpen = false; end
+                    if startsWith(s, 'cycles'), error('COM5 is in use by the BBTK application'); end
+                    varargout = {-1, 'COM5 is in use by the BBTK application'}; return;
+                end
                 M1_MOCK.serialOpen = true; varargout = {71, ''};
             case 'Write'
                 text = char(varargin{3}); M1_MOCK.commands{end + 1} = text;
@@ -354,7 +441,12 @@ switch name
                     if isempty(M1_MOCK.queue(1).bytes), M1_MOCK.queue(1) = []; end
                 end
                 varargout = {bytes, M1_MOCK.time, err};
-            case 'Close', M1_MOCK.serialOpen = false;
+            case 'Close'
+                if varargin{2} < 0
+                    M1_MOCK.invalidSerialCloses = M1_MOCK.invalidSerialCloses + 1;
+                    error('Invalid serial handle.');
+                end
+                M1_MOCK.serialOpen = false;
         end
 end
 end

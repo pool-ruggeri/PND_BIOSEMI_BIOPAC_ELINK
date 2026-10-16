@@ -12,8 +12,9 @@ try
     Screen('Preference', 'SkipSyncTests', 1);
     fprintf(2, ['WARNING: Visual synchronization tests are disabled (SkipSyncTests=1).\n' ...
         'Screen(''Flip'') timestamps are not yet scientifically qualified.\n']);
-    patch = m1_patch(root); run.patch = patch;
-    [window, ~, ifi] = m1_display(patch.screen, patch); run.ifi_s = ifi;
+    screenNumber = max(Screen('Screens'));
+    [window, ~, ifi] = m1_display(screenNumber); run.ifi_s = ifi;
+    patch = m1_patch(window, screenNumber); run.patch = patch;
     Screen('FillRect', window, patch.black);
     Screen('Flip', window); % Establish black before opening the serial port.
     io = tpad_io('open', [], port, run.folder);
@@ -46,9 +47,11 @@ catch problem
     if ~isempty(io) && io.aborted, run.status = 'aborted'; end
 end
 % Blacken on abort; an emergency edge is not counted as a completed cycle.
-if ~isempty(window)
+if ~isempty(window) && (isempty(io) || isempty(io.failure))
     try
-        Screen('FillRect', window, [0 0 0]); Screen('Flip', window);
+        if ismember(window, Screen('Windows'))
+            Screen('FillRect', window, [0 0 0]); Screen('Flip', window);
+        end
     catch
     end
 end
@@ -81,6 +84,7 @@ if ~isempty(run.error), fprintf(2, '%s\n', run.error); end
 end
 
 function check_running(io)
-assert(isempty(io.failure), 'M1:Serial', '%s', io.failure);
+assert(isempty(io.failure), 'M1:Serial', ...
+    'tPAD serial failure on %s: %s. Close the BBTK app or other port owner before retrying.', io.port, io.failure);
 assert(~io.aborted, 'M1:Abort', 'ESC pressed; acquired data will be saved.');
 end

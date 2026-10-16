@@ -15,6 +15,22 @@ The PO's M1 scope is recorded in [DECISIONS.md](DECISIONS.md). All three scripts
 are implemented. The optional Python reference was read only. No external
 recording-system control, installation, firmware change, or cabling work occurred.
 
+PO fixed-patch decision (2026-10-16): both acquisition scripts now open without
+calibration and calculate the same 150 x 150 px bottom-left square from the
+actual full-screen window size: `[0, winH - 150, 150, winH]`. `m1_patch` is the
+small shared geometry helper; `m1_display` has no saved-patch validation.
+RGB black/white remain `[0 0 0]` / `[255 255 255]`. The patch is black outside
+stimuli/white cycles. Calibration is optional and unchanged; its saved file,
+coordinates, dimensions, and display selection are never read by acquisition.
+
+The PO identified BBTK holding COM5 as the serial-open failure cause. Each
+script reports a single clear port failure with the instruction to close the
+port owner. Cleanup skips drawing after a serial failure and checks live window
+handles before other final redraws. Invalid negative serial handles are not
+closed. Resources and prior sync preferences are restored; BBTK is not terminated.
+XiD protocol, hardware timestamps, automatic TTL, matching, trial/cycle schedule,
+and log writers are unchanged.
+
 PO hotfix (2026-10-16): the laboratory PC reported a VBL synchronization failure
 in `opto_50_cycles`. Both acquisition scripts now set `SkipSyncTests=1` before
 opening any PTB window; `onCleanup` restores the previous value on completion,
@@ -31,7 +47,7 @@ Mouse drag and arrows position it, +/- resize
 it, SPACE toggles black/white, ENTER saves, and ESC exits without writing.
 Saving queries the current window client-area origin, including title-bar and
 window movement, to produce absolute `desktop_rect`. Subtracting the monitor's
-desktop origin yields `rect` for both unchanged full-screen acquisition scripts.
+desktop origin yields `rect` for this optional utility only.
 The window-local rectangle, monitor/window global rectangles, and `size_px`
 are retained. The patch must remain on the selected display when saved.
 
@@ -62,8 +78,8 @@ The initial restricted launch failed to contact the license server; a permitted
 retry succeeded. `Screen` and `IOPort` did not resolve on the default R2023b
 path. Agent checks installed no software and opened no real PTB display or
 serial port. The PO reported that windowed calibration works; the subsequent
-physical optical-test attempt failed with VBL synchronization failure. The new
-`SkipSyncTests=1` acquisition build has not yet been physically retested.
+physical attempts exposed VBL synchronization failure and BBTK holding COM5.
+The fixed-patch build has not yet been physically retested.
 
 Final checks on MATLAB R2023b Update 1 passed:
 
@@ -72,27 +88,27 @@ Final checks on MATLAB R2023b Update 1 passed:
   duplicate/reversed edges, missing/wrong/late optical reports, delayed
   responses/releases across trial boundaries, missing-onset RT handling,
   missing responses, and MAT/CSV exports including scalar early-failure data.
-- Fourteen simulated script scenarios: primary/secondary-display calibration with drag, arrow,
-  resize, SPACE, and ENTER controls; ESC with no saved file; ESC preserving
-  an existing file byte-for-byte; optical success; no optical events (expected
-  FAIL); optical ESC with partial data; ten-trial success; missing optical
-  onset with unavailable RT; ESC during synchronization; serial disconnection;
-  overlapping patch rejection; and window-opening failures in both acquisition
-  scripts. Each run checks restoration of its previous sync preference, including
-  initial values 0, 1, and 2; each acquisition window must open with value 1 and
-  each script must print the qualification warning. A focused keyboard regression reproduces
-  the original mixed-cell failure, then runs the corrected controls with that
-  same mixed table. Coordinate checks include client decorations, actual window
-  movement, a secondary monitor with negative desktop Y, and identical desktop
-  patch rectangles in calibration and both full-screen scripts. GUI flags,
-  normal stacking, BBTK focus exclusion, preference restoration, held keys,
-  bounds, cleanup, and byte-for-byte preservation on ESC are also checked.
+- 22 simulated script scenarios plus geometry bounds checks: both acquisition
+  scripts run before calibration has ever executed; later saved calibration
+  geometry and malformed utility output are ignored. Both use `[0 930 150 1080]`
+  on 1920 x 1080; the helper returns `[0 618 150 768]` on 1024 x 768 and rejects
+  an undersized display. Checks cover RGB values, 50 alternating 500 ms cycles,
+  50/50 received optical reports, black task synchronization/fixation/ITI,
+  ten trials, hardware RTs, synchronization, and the Mode 5 command allowlist.
+- Failure cases cover missing optical data/onset, ESC, disconnection, window
+  open errors, occupied COM5 with both live and already-closed windows, thrown
+  and returned serial-open errors, invalid serial handles, and unexpected
+  display closure. Checks require one serial error report, zero invalid redraws,
+  no journal-file leaks, and restored sync preferences (initial 0, 1, and 2).
+- Existing optional-calibration tests still cover mixed key-name cells, window
+  movement, primary/secondary desktop coordinates, focus, controls, and saving
+  or byte-for-byte preservation on ESC. The calibration source is unchanged.
 - MATLAB Code Analyzer: zero findings across all 14 MATLAB source/test files.
   Intentional test-only shared state has explicit analyzer annotations.
 
 The synthetic `input` stub produces an expected built-in-shadowing warning.
 Test code restores the prior MATLAB folder/path. Full console output is in
-`.local/skip_sync_hotfix_checks.log`; test artifacts are ignored by Git. Synthetic test
+`.local/fixed_patch_checks.log`; test artifacts are ignored by Git. Synthetic test
 success does not qualify physical timing or trigger delivery.
 
 Known limits: single selected display/sensor/button, frame-quantized durations,
@@ -106,8 +122,8 @@ context less certain even when hardware RT remains recoverable.
 
 Branch: `main`. Baseline M1 is commit `cbad781153ce7700d2e3aa413cee57fa8b99b026`,
 tagged `m1`. Prior pixel UX correction: `0ca0c32`; window/keyboard hotfix: `321c800`.
-The sync-preference hotfix is the latest commit touching `opto_50_cycles.m`:
-`git log -1 --format=%H -- opto_50_cycles.m`.
+Sync-preference hotfix: `39a393e`. The fixed-patch hotfix is the latest commit
+touching `m1_patch.m`: `git log -1 --format=%H -- m1_patch.m`.
 No remote is configured and no push is part of this work.
 
 ## Exact next steps for PO acceptance
@@ -116,13 +132,12 @@ No remote is configured and no push is part of this work.
    check `which Screen` and `which IOPort`. Set the actual COM port in both
    acquisition scripts. Both set `SkipSyncTests=1` automatically; no preliminary
    MATLAB preference configuration is required. PTB timing qualification remains pending.
-2. Run `opto_calibration`. Check that the normal window moves and allows
-   switching to the BBTK app. Move the window, drag/resize the patch under the
-   sensor, and adjust sensitivity in BBTK. Refocus calibration and check SPACE,
-   arrows, ENTER save, and ESC without saving. Confirm that the saved physical
-   patch position is reproduced by both full-screen scripts on the same display.
-   Record the installed firmware, sensitivity, and smoothing settings. Close
-   the BBTK app before running an acquisition script.
+2. Confirm the physical sensor covers the bottom-left 150 x 150 px area of the
+   selected experimental monitor. Calibration is optional for BBTK sensitivity
+   adjustment; its saved position does not configure acquisition. Record the
+   installed firmware, sensitivity, and smoothing settings. Close the BBTK app
+   or release its COM port before acquisition. Verify a deliberately occupied
+   port produces one clear error and safe cleanup on the laboratory PC.
 3. Run `opto_50_cycles`; require 50 ON, 50 OFF, all matched in sequence,
    zero anomalies, and optical result PASS. Inspect actual durations and flips.
 4. Start the external recorders. Run `simple_task`, press/release physical

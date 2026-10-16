@@ -15,11 +15,10 @@ try
     Screen('Preference', 'SkipSyncTests', 1);
     fprintf(2, ['WARNING: Visual synchronization tests are disabled (SkipSyncTests=1).\n' ...
         'Screen(''Flip'') timestamps are not yet scientifically qualified.\n']);
-    patch = m1_patch(root); run.patch = patch;
-    [window, rect, ifi] = m1_display(patch.screen, patch); run.ifi_s = ifi;
+    screenNumber = max(Screen('Screens'));
+    [window, rect, ifi] = m1_display(screenNumber); run.ifi_s = ifi;
+    patch = m1_patch(window, screenNumber); run.patch = patch;
     center = rect(3:4) / 2;
-    assert(~all(patch.rect(1:2) < center + 45 & patch.rect(3:4) > center - 45), ...
-        'M1:PatchOverlap', 'Move the optical patch away from the central stimulus with opto_calibration.');
     Screen('FillRect', window, patch.black); Screen('Flip', window);
     io = tpad_io('open', [], port, run.folder);
     serialCleanup = onCleanup(@() m1_cleanup(io, false));
@@ -93,13 +92,15 @@ catch problem
     run.status = 'error';
     if ~isempty(io) && io.aborted, run.status = 'aborted'; end
 end
-if ~isempty(window)
+if ~isempty(window) && (isempty(io) || isempty(io.failure))
     try
-        Screen('FillRect', window, [0 0 0]);
-        edge = ''; if stimulusWhite, edge = 'R'; end
-        f = flip_record(window, NaN, currentTrial, 'cleanup_black', edge, numel(flips) + 1);
-        flips = [flips; f];
-        if stimulusWhite, records(currentTrial).offset_ptb = f.onset_ptb; end
+        if ismember(window, Screen('Windows'))
+            Screen('FillRect', window, [0 0 0]);
+            edge = ''; if stimulusWhite, edge = 'R'; end
+            f = flip_record(window, NaN, currentTrial, 'cleanup_black', edge, numel(flips) + 1);
+            flips = [flips; f];
+            if stimulusWhite, records(currentTrial).offset_ptb = f.onset_ptb; end
+        end
     catch
         % Keep the original failure; the cleanup guard still closes display.
     end
@@ -161,6 +162,7 @@ f = struct('index', index, 'trial', trial, 'phase', phase, 'expected_edge', edge
 end
 
 function check_running(io)
-assert(isempty(io.failure), 'M1:Serial', '%s', io.failure);
+assert(isempty(io.failure), 'M1:Serial', ...
+    'tPAD serial failure on %s: %s. Close the BBTK app or other port owner before retrying.', io.port, io.failure);
 assert(~io.aborted, 'M1:Abort', 'ESC pressed; acquired data will be saved.');
 end
