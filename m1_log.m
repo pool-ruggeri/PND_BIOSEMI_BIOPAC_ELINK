@@ -24,6 +24,14 @@ switch action
         run.finished_local = char(datetime('now'));
         % MAT is authoritative and is saved before secondary CSV exports.
         save(fullfile(run.folder, 'session.mat'), 'run');
+        if isfield(run, 'raw_messages') && ~isempty(run.raw_messages)
+            writetable(struct2table(run.raw_messages, 'AsArray', true), ...
+                fullfile(run.folder, 'raw_messages.csv'));
+        end
+        if isfield(run, 'optical_pulses') && ~isempty(run.optical_pulses)
+            writetable(struct2table(run.optical_pulses, 'AsArray', true), ...
+                fullfile(run.folder, 'optical_pulses.csv'));
+        end
         if ~isempty(run.messages)
             writetable(struct2table(run.messages, 'AsArray', true), fullfile(run.folder, 'messages.csv'));
             events = run.messages(strcmp({run.messages.kind}, 'event') | ...

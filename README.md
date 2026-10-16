@@ -88,33 +88,49 @@ The optical test also checks consecutive hardware/display duration differences
 against a 50 ms tolerance and fails for missed scheduled flips.
 
 Both scripts classify Optical 1 reports after raw parsing with
-`m1_classify_optical`. An extra ON/OFF pair is ignored in analysis only when
-its ON begins **0..20 ms after OFF** and lasts **0..5 ms**, using original tPAD
-milliseconds. The preceding intact ON interval must exceed 5 ms; all four
-edges must be ordered and free of duplicate/state errors. The anchor OFF and
-extra pair must also share one intended OFF receipt gate, with the preceding
-ON in its immediately preceding intended ON gate. This existing gate
-provides presentation context only: it protects intended ON transitions,
-including closely spaced ones; neither host clock supplies filter durations.
-Startup OFFs, unfinished pairs, ambiguous onset bursts, and reports outside
-that context are retained. No timestamps, records, order, or buttons are changed.
+`m1_classify_optical`. Consecutive Optical 1 ON/OFF records form complete pulse
+pairs in serial order, ignoring interleaved buttons. An intended pulse must
+have its ON and OFF in the corresponding presentation receipt gates, with
+hardware duration within the existing **50 ms** tolerance of the displayed
+white interval (approximately 500 ms). A short pair is classified as chatter
+only if it lasts **0..3 ms**, adjoins an intact intended pulse at onset or
+offset, and the entire burst spans at most **20 ms** from that transition.
+All burst records must share that transition's ON or OFF receipt gate and be
+chronological and free of duplicate/state errors. Multiple short pairs and
+zero-ms ON/OFF/ON are supported. Independently intended short pulses are
+protected by their own distinct ON/OFF gates. Startup, unfinished, distant,
+or unsupported pairs remain unresolved; short duration alone never excludes a pair.
+
+All measured pulse durations and burst gaps use original tPAD milliseconds.
+Host receipt gates provide intended-transition context only; no clocks are
+aligned or substituted. Duplicate detection requires a repeated identity
+**without an intervening opposite edge on that sensor**. Equal-ms ON/OFF/ON
+and OFF/ON/OFF are real ordered transitions, not duplicates. No raw record,
+hardware timestamp, event order, or button event is deleted or rewritten.
 
 `optical_class` distinguishes `VALID_OPTICAL_ON/OFF`,
-`IGNORED_OPTICAL_GLITCH_ON/OFF`, and invalid flagged reports; `optical_glitch`
-marks analysis exclusions. VALID means retained for matching, not hardware
+`IGNORED_OPTICAL_GLITCH_ON/OFF`, unresolved and invalid reports; `optical_glitch`
+marks analysis exclusions. VALID means part of an intact intended pulse, not hardware
 qualification. Raw and filtered counts and ignored-pair totals are reported
 separately. Raw totals include setup/startup; filtered validation counts cover
 the interval from the first intended optical flip through the final drain.
-PASS still requires sequence/matching, durations, and all existing
-checks; it describes software reconstruction, not clean physical sensor output.
+`pulse_recovery_result` requires complete intended pulses, unique ordered edge
+matches, correct totals/durations, and no unresolved anomalies. The original
+`result` additionally requires no missed scheduled flips. Neither is physical
+TTL qualification; a separate warning reports raw artifacts even after recovery.
 
-The PO's physical run `opto_50_cycles_20261016_101138_tp8074c4e9_ed58_4b9e_9dae_55037be1da10`
-contains 63 ON/63 OFF: 50 intervals lasting 501..504 ms and 13 lasting 1..3 ms.
-Only 11 short pairs follow OFF by 0..1 ms. Two others follow OFF by 495/496 ms
-at intended ON in cycles 22/23 and remain ambiguous; they are not filtered.
-Read-only raw replay produces **52 ON/52 OFF retained, 48 ON/50 OFF matched,
-2 missing matches, 6 unexpected retained events: FAIL** (previously 13 missing,
-39 unexpected). Thresholds were not broadened to force 50/50.
+Read-only replays of the PO's two 2026-10-16 recordings give:
+
+| Recording time | Raw ON/OFF | Valid ON/OFF | Short artifacts (onset/offset) | Long durations | Pulse recovery |
+| --- | --- | --- | --- | --- | --- |
+| 10:51:38 | 61/61 | 50/50 | 11 (2/9), 0..2 ms | 502..505 ms | PASS |
+| 11:51:33 | 55/55 | 50/50 | 5 (1/4), 0..3 ms | 502..506 ms | PASS |
+
+Both have zero missing pulses/unresolved events. Their full checks remain FAIL:
+each recorded one missed first-ON flip deadline (about 15.9 ms). The earlier
+10:11:38 recording also reconstructs 50 pulses plus 13 artifacts (1..3 ms),
+with full checks PASS; complete-pulse analysis resolves its previously ambiguous
+onset bursts. Counts are calculated from records, never forced to 50/50.
 
 Task RT is `(button_press_ms - optical_on_ms)`, using only hardware timestamps,
 with a 0..1500 ms window and serial event order to break equal-ms onset ties.
@@ -151,8 +167,10 @@ Each acquisition creates a unique folder under `data/`:
 | `session.mat` | Authoritative complete/partial run, configuration, sync marker, matches, errors |
 | `raw_rx.bin`, `raw_chunks.csv` | Exact received bytes, zero-based offsets, read/poll host times |
 | `commands.csv` | Initialization bytes in hex and host send times |
+| `raw_messages.csv` | Decoded records before optical/trial postprocessing; `run.raw_messages` retains live sync markers |
 | `messages.csv`, `events.csv` | All parsed messages/events, raw hex, flags, labels, optical classifications |
 | `optical_events.csv`, `optical_matches.csv` | Optical reports and per-transition matches/missing values |
+| `optical_pulses.csv` | Complete hardware pulse pairs, durations, intended/onset-artifact/offset-artifact/unresolved classes |
 | `flips.csv`, `trials.csv`, `summary.csv` | PTB timestamps, task responses, run counts/results |
 | `optical_summary.csv` (task) | Raw/filtered optical totals, matches, ignored pairs, unexpected optical reports |
 | `status.txt` | Completion/abort/error status and failure text |
@@ -175,10 +193,11 @@ The script smoke test runs copies with isolated synthetic PTB/serial functions
 under `.local/script_smoke/`; it opens no real hardware and restores the MATLAB
 path afterwards. Do not add `.local` or this whole repository recursively to
 the MATLAB path. See [handoff](docs/PROJECT_HANDOFF.md) for actual results.
-The replay reads the named historical run without overwriting it and exports
-new analysis under `.local/lab_replay/`. It skips explicitly if that Git-ignored
-laboratory data is absent. A passing replay regression verifies the remaining
-FAIL result, not successful hardware qualification.
+The replay reads both named recordings and the earlier 10:11 run without
+overwriting them, exporting new analysis under `.local/lab_replay/`. Missing
+Git-ignored recordings are explicitly skipped. Passing replay regressions
+verify pulse reconstruction and preserve the separate full-check failures;
+they do not establish hardware qualification.
 
 If the port cannot open, check Device Manager and close the BBTK app/terminals.
 The known COM5 conflict is the BBTK app owning the port. Failed acquisition

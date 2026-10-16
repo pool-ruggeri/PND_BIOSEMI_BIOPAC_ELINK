@@ -168,14 +168,16 @@ for scenario = {'cycles_flip_error', 'task_flip_error'}
     assert(strcmp(r.status, 'error') && contains(r.error, 'Injected display closure'));
     assert(~M1_MOCK.serialOpen && ~M1_MOCK.displayOpen);
 end
-for scenario = {'cycles_glitch', 'task_glitch'}
+for scenario = {'cycles_glitch', 'task_glitch', 'cycles_onset_chatter', ...
+        'task_onset_chatter', 'cycles_both_chatter'}
     reset_mock(scenario{1});
     script = 'simple_task';
     if startsWith(scenario{1}, 'cycles'), script = 'opto_50_cycles'; end
     execute_script(script); r = latest_run(project, script);
     if startsWith(scenario{1}, 'cycles')
-        assert(strcmp(r.summary.result, 'PASS') && r.summary.ignored_glitch_pairs == 50);
-        assert(r.summary.raw_detected_on == 100 && r.summary.detected_on == 50);
+        pairs = 50; if contains(scenario{1}, 'both'), pairs = 100; end
+        assert(strcmp(r.summary.result, 'PASS') && r.summary.ignored_glitch_pairs == pairs);
+        assert(r.summary.raw_detected_on == 50 + pairs && r.summary.detected_on == 50);
     else
         assert(r.summary.valid_responses == 10 && all([r.trials.rt_ms] == 250));
         assert(r.summary.event_issues == 0 && r.optical_summary.ignored_glitch_pairs == 10);
@@ -185,6 +187,9 @@ for scenario = {'cycles_glitch', 'task_glitch'}
     end
     assert_fixed_patch(r);
     assert(sum([r.messages.optical_glitch]) > 0);
+    assert(~isfield(r.raw_messages, 'optical_glitch'));
+    assert(numel(r.raw_messages) == numel(r.messages));
+    assert(isfile(fullfile(r.folder, 'raw_messages.csv')) && isfile(fullfile(r.folder, 'optical_pulses.csv')));
 end
 for scenario = {'cycles_init_write_error', 'cycles_init_timeout', 'cycles_init_abort'}
     reset_mock(scenario{1}); execute_script('opto_50_cycles');
@@ -207,7 +212,7 @@ assert(M1_MOCK.serialOpen && isequal(fopen('all'), liveFiles));
 io = tpad_io('close', io); %#ok<NASGU>
 assert(M1_MOCK.serialCloses == 2 && M1_MOCK.invalidSerialCloses == 0);
 assert(isequal(fopen('all'), openFiles));
-fprintf('PASS: 27 simulated script scenarios plus geometry and repeated-cleanup/handle-0 checks.\n');
+fprintf('PASS: 30 simulated script scenarios plus geometry and repeated-cleanup/handle-0 checks.\n');
 fprintf('No physical GUI/hardware validation.\n');
 end
 
@@ -437,9 +442,13 @@ switch name
                     missing = strcmp(s, 'task_missing_onset') && ...
                         M1_MOCK.onsets == 3 && edge == 'P';
                     if ~strcmp(s, 'cycles_silent') && ~missing
+                        if (endsWith(s, '_onset_chatter') || contains(s, '_both_chatter')) && edge == 'P'
+                            queue_event(vbl + 0.001, sprintf('C P 1 %d', stamp(vbl)));
+                            queue_event(vbl + 0.002, sprintf('C R 1 %d', stamp(vbl)));
+                        end
                         queue_event(vbl + 0.004, sprintf('C %s 1 %d', edge, stamp(vbl)));
                     end
-                    if endsWith(s, '_glitch') && edge == 'R'
+                    if (endsWith(s, '_glitch') || contains(s, '_both_chatter')) && edge == 'R'
                         queue_event(vbl + 0.005, sprintf('C P 1 %d', stamp(vbl) + 1));
                         queue_event(vbl + 0.007, sprintf('C R 1 %d', stamp(vbl) + 3));
                     end

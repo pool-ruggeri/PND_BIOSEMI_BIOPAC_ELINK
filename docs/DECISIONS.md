@@ -40,23 +40,34 @@
 - Binary RX journals and hex messages retain original input, including setup,
   malformed lines, and unfinished fragments. Duplicate events are logged rather
   than dropped. No fabricated timestamps, timer unwrapping, or clock alignment.
-- PO optical hotfix (2026-10-16): classify short post-OFF Optical 1 ON/OFF
-  pairs after parsing, preserving every raw record. Hardware-only thresholds
-  are inclusive 0..20 ms OFF-to-ON and 0..5 ms ON duration, following an intact
-  ON interval longer than 5 ms. Require chronological, nonduplicate, state-valid
-  edges, the same intended OFF receipt context for the anchor and pair, and
-  the preceding ON in the immediately preceding intended ON context.
-  Receipt context only protects intended transitions; it does not supply filter
-  durations. Startup/incomplete and ambiguous onset reports remain retained.
-  Both scripts use this shared classifier. Buttons and hardware RT are unchanged.
-  Raw/filtered counts and explicit ignored-pair annotations remain inspectable.
-  Raw totals include startup; filtered validation starts at the first intended
-  optical flip and ends after the final drain, retaining the existing interval.
-- Real raw replay: 13 short pulses last 1..3 ms, normal pulses 501..504 ms.
-  Eleven short pairs follow OFF by 0..1 ms; two at intended ON follow OFF by
-  495/496 ms. Keep the latter: 63/63 raw becomes 52/52 retained, 48/50 matched,
-  2 missing matches and 6 unexpected reports, still FAIL. Cycles 22/23 have
-  ambiguous ON candidates. Do not relax criteria to manufacture a PASS.
+- PO sequence-classification correction (2026-10-16), superseding the post-OFF
+  filter in `4bc74a3`: classify complete Optical 1 ON/OFF sequences after
+  acquisition. An intended pulse uses corresponding ON/OFF receipt gates and
+  hardware duration within the existing 50 ms displayed-duration tolerance.
+  A 0..3 ms short pair is an artifact only next to an intact intended pulse,
+  in its onset or offset gate, with the whole burst within 20 ms of the anchor
+  transition. Multiple pairs are supported; independently intended transitions,
+  incomplete/startup/unsupported events remain retained. Durations/gaps are
+  measured only in original hardware ms; receipt gates are context, not clock
+  alignment. No changed serial acquisition, TTL, or presentation schedule.
+- Same-ms P/R/P or R/P/R is not a duplicate: an intervening opposite edge
+  establishes a new transition on that sensor. Repeated same-level identities
+  remain flagged, never removed. Original global identity detection incorrectly
+  rejected valid ONs and caused cascading false state errors. Parser bytes,
+  order, timestamps, and button records remain preserved.
+- Read-only replays: 10:51:38 has 61/61 raw -> 50 intended pulses plus 11
+  artifacts (2 onset/9 offset, 0..2 ms); long intervals 502..505 ms. 11:51:33
+  has 55/55 raw -> 50 pulses plus 5 artifacts (1 onset/4 offset, 0..3 ms);
+  long intervals 502..506 ms. Both have zero missing/unresolved reports and
+  pulse recovery PASS. Each retains one missed first-ON flip deadline, so full
+  checks FAIL. Earlier 10:11:38 now recovers 50 pulses plus 13 artifacts,
+  with full checks PASS. Fixture expectations never drive runtime analysis.
+- Raw journals and `run.raw_messages`/`raw_messages.csv` remain distinct from
+  classified `run.messages`/event CSVs. `optical_pulses.csv` records complete
+  pairs, original hardware duration, and classification. Raw totals include
+  startup; validation retains the first-optical-flip through final-drain scope.
+  Button synchronization/pairing and RT formula are unchanged. After onset
+  chatter, use the actual ON beginning the retained long pulse as the RT anchor.
 - Software reconstruction does not clean already emitted tPAD TTL pulses.
   External systems may record the short pulses. No automatic TTL settings or
   serial commands change. Sensitivity/threshold cause is unverified; PO/BBTK
@@ -75,8 +86,10 @@
   Release pairing spans trials. Other presses retain receipt-based context,
   which is less certain under excessive serial latency.
 - A completed run describes script execution, not hardware acceptance. Optical
-  PASS additionally requires all 100 filtered matched reports, correct totals, no
-  anomalies, consistent durations, and no missed scheduled flips.
+  `pulse_recovery_result` PASS requires all 50 complete intended pulses, all
+  100 unique matched edges, correct totals, no unresolved anomalies, and consistent
+  durations. The original `result` also requires no missed scheduled flips.
+  A separate raw-artifact warning persists after successful reconstruction.
 - PO performs physical acceptance. Manufacturer-documented TTL mappings are
   implemented assumptions pending measurement of installed hardware/settings.
 

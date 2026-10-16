@@ -80,11 +80,14 @@ if finish && ~isempty(state.buffer), emit('incomplete'); end
                     m.kind = 'event';
                     identity = sprintf('%s %s %d %.0f', m.channel, m.edge, ...
                         m.sensor, m.tpad_ms);
-                    m.duplicate = any(strcmp(state.seen, identity));
+                    level = double(m.edge == 'P');
+                    % An intervening opposite edge makes a new transition,
+                    % even when millisecond quantization repeats its identity.
+                    m.duplicate = any(strcmp(state.seen, identity)) && ...
+                        state.levels(channelIndex, m.sensor) == level;
                     state.seen{end + 1} = identity;
                     m.out_of_order = m.tpad_ms < state.lastMs;
                     state.lastMs = max(state.lastMs, m.tpad_ms);
-                    level = double(m.edge == 'P');
                     m.state_error = ~m.duplicate && ...
                         state.levels(channelIndex, m.sensor) == level;
                     if ~m.duplicate && ~m.out_of_order

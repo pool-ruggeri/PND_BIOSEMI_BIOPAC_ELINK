@@ -22,7 +22,7 @@ assert(isequaln(rmfield(classified, {'optical_class', 'optical_glitch'}), bounce
 assert(isequaln(m1_classify_optical(classified, [-1 2 2 2 -3 4]), classified));
 
 % Threshold boundaries; a longer normal pulse after a brief gap is retained.
-for test = [20 21 1 1; 5 2 6 500; 1 0 0 0]
+for test = [17 21 1 1; 3 2 4 500; 1 0 0 0]
     sample = bounce;
     sample(3).tpad_ms = sample(2).tpad_ms + test(1);
     sample(4).tpad_ms = sample(3).tpad_ms + test(2);
@@ -60,12 +60,48 @@ assert(s.raw_detected_on == 1 && s.raw_detected_off == 2 && ~any([m.optical_glit
 [~, ~, s] = m1_match_optical([], flips, 2, false, 0.25, 50);
 assert(s.missing_events == 4 && strcmp(s.result, 'FAIL'));
 
-% A short pulse at an intended ON (not immediately post-OFF) stays ambiguous.
+% A complete short pulse at onset is chatter when immediately followed by
+% the intact intended long pulse; use that last actual ON, never an invented one.
 onsetBurst = parse_events({'C P 1 900000', 'C R 1 900500', 'C P 1 901000', ...
     'C R 1 901002', 'C P 1 901002', 'C R 1 901500'}, ...
     [10.01 10.51 11.01 11.02 11.03 11.51]);
-[m, ~, s] = m1_match_optical(onsetBurst, flips, 2, true, 0.25, 50);
-assert(~any([m.optical_glitch]) && s.missing_events == 1 && strcmp(s.result, 'FAIL'));
+[m, recovered, s] = m1_match_optical(onsetBurst, flips, 2, true, 0.25, 50);
+assert(sum([m.optical_glitch]) == 2 && s.missing_events == 0 && strcmp(s.result, 'PASS'));
+assert(recovered(3).tpad_ms == 901002 && s.recovered_pulses == 2);
+
+% Equal-ms P/R/P and R/P/R are real ordered transitions, not duplicates.
+equal = parse_events({'C P 1 900000', 'C R 1 900000', 'C P 1 900000', ...
+    'C R 1 900500', 'C P 1 900500', 'C R 1 900500', ...
+    'C P 1 901000', 'C R 1 901500'}, ...
+    [10.001 10.002 10.003 10.501 10.502 10.503 11.001 11.501]);
+assert(~any([equal.duplicate] | [equal.state_error] | [equal.out_of_order]));
+[m, recovered, s, pulses] = m1_match_optical(equal, flips, 2, true, 0.25, 50);
+assert(strcmp(s.result, 'PASS') && s.ignored_glitch_pairs == 2);
+assert(recovered(1).event_sequence == 3 && recovered(2).event_sequence == 4);
+assert(isequal([m.tpad_ms], [equal.tpad_ms]) && numel(m) == numel(equal));
+assert(sum(strcmp({pulses.classification}, 'SHORT_ARTIFACT_ONSET')) == 1);
+assert(sum(strcmp({pulses.classification}, 'SHORT_ARTIFACT_OFFSET')) == 1);
+% An actual repeated same-level record stays flagged and retained.
+repeated = parse_events({'C P 1 1', 'C P 1 1', 'C R 1 1', 'C P 1 1'}, [1 1 1 1]);
+assert(repeated(2).duplicate && ~repeated(4).duplicate && ~repeated(4).state_error);
+
+% Several offset pairs in one bounded burst, including a repeated R identity.
+burst = parse_events({'C P 1 900000', 'C R 1 900500', 'C P 1 900501', ...
+    'C R 1 900503', 'C P 1 900503', 'C R 1 900503', ...
+    'C P 1 901000', 'C R 1 901500'}, ...
+    [10.01 10.51 10.52 10.53 10.54 10.55 11.01 11.51]);
+[m, ~, s] = m1_match_optical(burst, flips, 2, true, 0.25, 50);
+assert(s.ignored_glitch_pairs == 2 && sum([m.optical_glitch]) == 4 && strcmp(s.result, 'PASS'));
+% No complete long anchor, no suppression; a distant short pulse is unresolved.
+noAnchor = onsetBurst(3:5);
+assert(~any_glitch(noAnchor, [-3 -3 -3]));
+distant = bounce; distant(3).tpad_ms = 900530; distant(4).tpad_ms = 900532;
+assert(~any_glitch(distant, [-1 2 2 2 -3 4]));
+
+% Pulse recovery and the original missed-deadline check are separate results.
+missed = flips; missed(1).missed_s = 0.001;
+[~, ~, s] = m1_match_optical(normal, missed, 2, true, 0.25, 50);
+assert(strcmp(s.pulse_recovery_result, 'PASS') && strcmp(s.result, 'FAIL'));
 
 % Delayed receipt crosses the next fixation; button hardware RT/release stays
 % in trial 1. A glitch spanning that boundary creates no extra trial/issue.
@@ -83,7 +119,19 @@ assert(all([trials.event_issues] == 0));
 after = task(strcmp({task.channel}, 'A'));
 assert(isequaln(rmfield(after, {'label', 'trial', 'optical_class', 'optical_glitch'}), ...
     rmfield(buttons, {'label', 'trial'})));
-fprintf('PASS: 7 optical filter regression groups (including trial boundaries and unchanged button RT).\n');
+% Nonzero onset chatter must anchor RT to the actual long-pulse ON (+2 ms).
+task = parse_events({'A P 1 899000', 'A R 1 899100', ...
+    'C P 1 900000', 'C R 1 900002', 'C P 1 900002', 'A P 1 900252', ...
+    'C R 1 900502', 'A R 1 900600', 'C P 1 901000', 'C R 1 901500'}, ...
+    [8 8.1 10.001 10.002 10.003 10.26 10.51 10.61 11.01 11.51]);
+task(1).label = 'SYNC_BUTTON_PRESS'; task(2).label = 'SYNC_BUTTON_RELEASE';
+buttonTimes = [task(strcmp({task.channel}, 'A')).tpad_ms];
+[task, matched] = m1_match_optical(task, flips, 2, true, 0.25, 50);
+[task, trials] = m1_trials(task, records, matched);
+assert(trials(1).optical_on_ms == 900002 && trials(1).rt_ms == 250);
+assert(isequal([task(strcmp({task.channel}, 'A')).tpad_ms], buttonTimes));
+assert(strcmp(task(1).label, 'SYNC_BUTTON_PRESS') && strcmp(task(2).label, 'SYNC_BUTTON_RELEASE'));
+fprintf('PASS: 10 optical regression groups (onset/offset/equal-ms chatter, pulse recovery, unchanged button RT).\n');
 end
 
 function yes = any_glitch(messages, context)
