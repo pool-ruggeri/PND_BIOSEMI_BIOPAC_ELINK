@@ -10,6 +10,11 @@ record = struct('fixation_ptb', NaN, 'onset_ptb', NaN, 'offset_ptb', NaN, ...
 records = repmat(record, 10, 1);
 displayCleanup = onCleanup(@() m1_cleanup([]));
 try
+    previousSync = Screen('Preference', 'SkipSyncTests');
+    syncCleanup = onCleanup(@() Screen('Preference', 'SkipSyncTests', previousSync));
+    Screen('Preference', 'SkipSyncTests', 1);
+    fprintf(2, ['WARNING: Visual synchronization tests are disabled (SkipSyncTests=1).\n' ...
+        'Screen(''Flip'') timestamps are not yet scientifically qualified.\n']);
     patch = m1_patch(root); run.patch = patch;
     [window, rect, ifi] = m1_display(patch.screen, patch); run.ifi_s = ifi;
     center = rect(3:4) / 2;

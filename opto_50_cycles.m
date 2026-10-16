@@ -7,6 +7,11 @@ run = m1_log('new', root, 'opto_50_cycles');
 io = []; window = []; flips = [];
 displayCleanup = onCleanup(@() m1_cleanup([]));
 try
+    previousSync = Screen('Preference', 'SkipSyncTests');
+    syncCleanup = onCleanup(@() Screen('Preference', 'SkipSyncTests', previousSync));
+    Screen('Preference', 'SkipSyncTests', 1);
+    fprintf(2, ['WARNING: Visual synchronization tests are disabled (SkipSyncTests=1).\n' ...
+        'Screen(''Flip'') timestamps are not yet scientifically qualified.\n']);
     patch = m1_patch(root); run.patch = patch;
     [window, ~, ifi] = m1_display(patch.screen, patch); run.ifi_s = ifi;
     Screen('FillRect', window, patch.black);

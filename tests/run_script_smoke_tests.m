@@ -78,11 +78,13 @@ assert(all(arrayfun(@(f) isequal(f.rect, saved.patch.rect), ...
     M1_MOCK.history([M1_MOCK.history.white]))));
 assert(all(arrayfun(@(f) isequal(f.rect + repmat(f.origin, 1, 2), saved.patch.desktop_rect), ...
     M1_MOCK.history([M1_MOCK.history.white]))));
-reset_mock('cycles_silent'); execute_script('opto_50_cycles');
+reset_mock('cycles_silent'); M1_MOCK.preferences.SkipSyncTests = 1;
+execute_script('opto_50_cycles');
 r = latest_run(project, 'opto_50_cycles');
 assert(strcmp(r.summary.result, 'FAIL') && r.summary.missing_events == 100);
 assert(r.summary.detected_on == 0 && r.summary.detected_off == 0);
-reset_mock('cycles_abort'); execute_script('opto_50_cycles');
+reset_mock('cycles_abort'); M1_MOCK.preferences.SkipSyncTests = 2;
+execute_script('opto_50_cycles');
 r = latest_run(project, 'opto_50_cycles');
 assert(strcmp(r.status, 'aborted') && numel(r.flips) > 0 && numel(r.flips) < 100);
 assert(~M1_MOCK.serialOpen && ~M1_MOCK.displayOpen);
@@ -102,7 +104,8 @@ reset_mock('task_missing_onset'); execute_script('simple_task');
 r = latest_run(project, 'simple_task');
 assert(strcmp(r.status, 'complete') && isnan(r.trials(3).rt_ms));
 assert(strcmp(r.trials(3).response_validity, 'unverified_missing_optical_onset'));
-reset_mock('task_abort_sync'); execute_script('simple_task');
+reset_mock('task_abort_sync'); M1_MOCK.preferences.SkipSyncTests = 2;
+execute_script('simple_task');
 r = latest_run(project, 'simple_task');
 assert(strcmp(r.status, 'aborted') && isfinite(r.sync.press_tpad_ms));
 assert(isnan(r.sync.release_tpad_ms) && r.summary.presented_trials == 0);
@@ -111,13 +114,23 @@ reset_mock('task_disconnect'); execute_script('simple_task');
 r = latest_run(project, 'simple_task');
 assert(strcmp(r.status, 'error') && contains(r.serial_failure, 'Injected'));
 assert(~M1_MOCK.serialOpen && ~M1_MOCK.displayOpen);
+reset_mock('cycles_open_error'); M1_MOCK.preferences.SkipSyncTests = 2;
+execute_script('opto_50_cycles');
+r = latest_run(project, 'opto_50_cycles');
+assert(strcmp(r.status, 'error') && contains(r.error, 'Injected window opening failure'));
+assert(~M1_MOCK.serialOpen && ~M1_MOCK.displayOpen);
+reset_mock('task_open_error'); M1_MOCK.preferences.SkipSyncTests = 2;
+execute_script('simple_task');
+r = latest_run(project, 'simple_task');
+assert(strcmp(r.status, 'error') && contains(r.error, 'Injected window opening failure'));
+assert(~M1_MOCK.serialOpen && ~M1_MOCK.displayOpen);
 saved.patch.rect = [900 480 1045 624]; patch = saved.patch;
 save(fullfile(project, 'opto_patch.mat'), 'patch');
 reset_mock('task_bad_patch'); execute_script('simple_task');
 r = latest_run(project, 'simple_task');
 assert(strcmp(r.status, 'error') && contains(r.error, 'central stimulus'));
 assert(~M1_MOCK.serialOpen && ~M1_MOCK.displayOpen);
-fprintf('PASS: 12 simulated script scenarios, including mixed key-name and moved-window regressions.\n');
+fprintf('PASS: 14 simulated script scenarios, including sync preference restoration on completion, abort, and errors.\n');
 fprintf('No physical GUI/hardware validation.\n');
 end
 
@@ -128,7 +141,15 @@ bytes = fread(fid, Inf, '*uint8');
 end
 
 function execute_script(name)
-eval(name); % Execute the real script copy with its own local functions.
+global M1_MOCK %#ok<GVMIS>
+previousSync = M1_MOCK.preferences.SkipSyncTests;
+output = evalc(name); % Execute the real script copy with its own local functions.
+fprintf('%s', output);
+assert(M1_MOCK.preferences.SkipSyncTests == previousSync, 'SkipSyncTests was not restored.');
+if ~strcmp(name, 'opto_calibration')
+    assert(contains(output, 'Visual synchronization tests are disabled (SkipSyncTests=1).'));
+    assert(contains(output, 'Screen(''Flip'') timestamps are not yet scientifically qualified.'));
+end
 end
 
 function r = latest_run(project, name)
@@ -265,7 +286,8 @@ switch name
                     M1_MOCK.windowGlobal = [origin origin + [684 461]];
                 else
                     assert(numel(varargin) == 3, 'Acquisition must remain full screen.');
-                    assert(M1_MOCK.preferences.WindowShieldingLevel == 2000 && M1_MOCK.preferences.SkipSyncTests == 0);
+                    assert(M1_MOCK.preferences.WindowShieldingLevel == 2000 && M1_MOCK.preferences.SkipSyncTests == 1);
+                    if endsWith(s, '_open_error'), error('Injected window opening failure'); end
                     M1_MOCK.windowLocal = [0 0 1920 1080];
                     M1_MOCK.windowGlobal = M1_MOCK.screenGlobal;
                 end

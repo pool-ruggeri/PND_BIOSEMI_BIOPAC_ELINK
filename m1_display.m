@@ -1,7 +1,6 @@
 function [window, rect, ifi] = m1_display(screenNumber, patch)
-%M1_DISPLAY Full screen with PTB timing checks enabled and RGB range 0..255.
+%M1_DISPLAY Full screen with the caller's sync preference and RGB range 0..255.
 AssertOpenGL;
-Screen('Preference', 'SkipSyncTests', 0);
 [window, rect] = Screen('OpenWindow', screenNumber, [0 0 0]);
 Screen('ColorRange', window, 255);
 Screen('TextSize', window, 24);

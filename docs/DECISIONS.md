@@ -10,6 +10,13 @@
 - Serial setup uses acknowledged `X` / `MOD5` commands with documented spacing.
   The hardware clock is never explicitly reset, including after synchronization.
   Existing optical sensitivity and smoothing settings are not altered.
+- PO decision (2026-10-16): after a Windows 10 VBL synchronization failure,
+  both acquisition scripts set `SkipSyncTests=1` before opening any window and
+  restore the prior preference on completion, errors, and aborts. The display
+  helper preserves the caller's setting. Both scripts print that visual sync
+  tests are disabled and Flip timestamps are not scientifically qualified.
+  Independent tPAD timestamps, matching, triggers, trial structure, and logging
+  remain unchanged. The working calibration script is unchanged.
 - PO hotfix: calibration uses a normal, movable 700 x 500 GUI window with
   normal stacking, leaving the BBTK app usable. It uses a 150 px starting square, mouse drag,
   arrow movement, +/- resize, SPACE toggle, ENTER save, and ESC abort without

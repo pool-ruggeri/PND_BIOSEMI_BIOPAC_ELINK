@@ -54,8 +54,13 @@ movement. `rect` gives the same position within the selected display for both
 full-screen scripts; `calibration_rect` is the window-local rectangle, and
 `size_px` is its pixel size. Saving rejects a patch outside the selected display.
 No physical centimeter size is assumed. The calibration GUI skips timing
-qualification and restores its prior PTB settings on exit; acquisition sync
-checks remain enabled. Visual durations are rounded to the nearest whole refresh interval;
+qualification and restores its prior PTB settings on exit. By PO decision,
+both acquisition scripts automatically set `SkipSyncTests=1` before opening a
+window and restore the previous value on completion, error, or ESC. No preliminary
+MATLAB preference command is needed. They print a warning: visual synchronization
+tests are disabled and `Screen('Flip')` timestamps are not yet scientifically
+qualified. Independent tPAD hardware timestamps remain unchanged.
+Visual durations are rounded to the nearest whole refresh interval;
 actual flip timestamps and missed deadlines are recorded.
 
 The window uses PTB's [GUI window flag](https://psychtoolbox.org/docs/kPsychGUIWindow)
@@ -135,6 +140,6 @@ the MATLAB path. See [handoff](docs/PROJECT_HANDOFF.md) for actual results.
 If the port cannot open, check Device Manager and close the BBTK app/terminals.
 Missing mode acknowledgement stops acquisition and saves the error. For missing
 optical events, check patch placement, sensor sensitivity, and the BBTK sensor
-check utility. For PTB timing failures, resolve the existing display setup before
-collecting data; do not disable sync checks. Inspect raw messages, missed flips,
+check utility. The acquisition scripts already set `SkipSyncTests=1`; persistent
+display failures still need investigation. Inspect raw messages, missed flips,
 and run status when a test fails. No automatic timestamp correction is applied.

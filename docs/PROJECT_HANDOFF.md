@@ -1,6 +1,6 @@
 # M1 project handoff
 
-Delivery date: 2026-10-15 (Europe/Zurich). Status: software implemented; laboratory
+Delivery date: 2026-10-15; updated 2026-10-16 (Europe/Zurich). Status: software implemented; laboratory
 acceptance pending. Roles: PO = user; TL = ChatGPT; implementation = Codex.
 
 ## Architecture and scope
@@ -14,6 +14,16 @@ and host serial-reception times remain separate fields.
 The PO's M1 scope is recorded in [DECISIONS.md](DECISIONS.md). All three scripts
 are implemented. The optional Python reference was read only. No external
 recording-system control, installation, firmware change, or cabling work occurred.
+
+PO hotfix (2026-10-16): the laboratory PC reported a VBL synchronization failure
+in `opto_50_cycles`. Both acquisition scripts now set `SkipSyncTests=1` before
+opening any PTB window; `onCleanup` restores the previous value on completion,
+errors, or aborts. `m1_display` no longer overrides the caller's setting with 0.
+Run `opto_50_cycles` or `simple_task` directly without preliminary preference
+configuration. Both print that visual synchronization tests are disabled and
+`Screen('Flip')` timestamps are not yet scientifically qualified. Independent
+tPAD timestamps, XiD, TTL, optical matching, trial structure, and logging are
+unchanged. `opto_calibration.m` is unchanged.
 
 PO hotfix (2026-10-15): `opto_calibration.m` now opens a normal, movable window
 approximately 700 x 500 px, with a 150 px white square on black and normal stacking.
@@ -30,8 +40,8 @@ alias maps now filter non-text entries before using `ismember`. Both other
 scripts and their helpers were inspected: direct `KbName` lookups have no
 analogous mixed-table membership call. GUI controls ignore BBTK keystrokes when
 unfocused. Calibration uses no serial connection or keyboard suppression.
-Normal stacking and skipped timing qualification apply only to this GUI;
-previous PTB preferences are restored even on cancel. Experimental timing,
+Normal stacking applies only to this GUI, which retains its separate
+`SkipSyncTests=2` setting and restores prior preferences even on cancel. Scheduled durations,
 XiD acquisition, hardware timestamps, TTL, and trial/cycle logic are unchanged.
 
 Serial: editable COM5 default in both acquisition scripts; 115200, 8N1, no flow
@@ -51,9 +61,9 @@ access is available. Preferences for checks were confined to `.local/`.
 The initial restricted launch failed to contact the license server; a permitted
 retry succeeded. `Screen` and `IOPort` did not resolve on the default R2023b
 path. Agent checks installed no software and opened no real PTB display or
-serial port. The PO's first laboratory attempt on the previous build reported
-the full-screen behavior and mixed-cell keyboard error. This corrected build
-has not yet been physically retested.
+serial port. The PO reported that windowed calibration works; the subsequent
+physical optical-test attempt failed with VBL synchronization failure. The new
+`SkipSyncTests=1` acquisition build has not yet been physically retested.
 
 Final checks on MATLAB R2023b Update 1 passed:
 
@@ -62,12 +72,15 @@ Final checks on MATLAB R2023b Update 1 passed:
   duplicate/reversed edges, missing/wrong/late optical reports, delayed
   responses/releases across trial boundaries, missing-onset RT handling,
   missing responses, and MAT/CSV exports including scalar early-failure data.
-- Twelve simulated script scenarios: primary/secondary-display calibration with drag, arrow,
+- Fourteen simulated script scenarios: primary/secondary-display calibration with drag, arrow,
   resize, SPACE, and ENTER controls; ESC with no saved file; ESC preserving
   an existing file byte-for-byte; optical success; no optical events (expected
   FAIL); optical ESC with partial data; ten-trial success; missing optical
   onset with unavailable RT; ESC during synchronization; serial disconnection;
-  and overlapping patch rejection. A focused keyboard regression reproduces
+  overlapping patch rejection; and window-opening failures in both acquisition
+  scripts. Each run checks restoration of its previous sync preference, including
+  initial values 0, 1, and 2; each acquisition window must open with value 1 and
+  each script must print the qualification warning. A focused keyboard regression reproduces
   the original mixed-cell failure, then runs the corrected controls with that
   same mixed table. Coordinate checks include client decorations, actual window
   movement, a secondary monitor with negative desktop Y, and identical desktop
@@ -79,10 +92,11 @@ Final checks on MATLAB R2023b Update 1 passed:
 
 The synthetic `input` stub produces an expected built-in-shadowing warning.
 Test code restores the prior MATLAB folder/path. Full console output is in
-`.local/calibration_hotfix_checks.log`; test artifacts are ignored by Git. Synthetic test
+`.local/skip_sync_hotfix_checks.log`; test artifacts are ignored by Git. Synthetic test
 success does not qualify physical timing or trigger delivery.
 
 Known limits: single selected display/sensor/button, frame-quantized durations,
+disabled visual synchronization tests and unqualified PTB Flip timestamps,
 250 ms receipt matching bound, 50 ms optical duration tolerance, no clock drift
 or wrap correction, no release beyond the final drain, and no guaranteed recovery
 after power loss/forced process termination. Severe latency makes fixation/ITI
@@ -91,15 +105,17 @@ context less certain even when hardware RT remains recoverable.
 ## Local Git
 
 Branch: `main`. Baseline M1 is commit `cbad781153ce7700d2e3aa413cee57fa8b99b026`,
-tagged `m1`. Prior pixel UX correction: `0ca0c32`. The window/keyboard hotfix is the latest commit touching
-`opto_calibration.m`: `git log -1 --format=%H -- opto_calibration.m`.
+tagged `m1`. Prior pixel UX correction: `0ca0c32`; window/keyboard hotfix: `321c800`.
+The sync-preference hotfix is the latest commit touching `opto_50_cycles.m`:
+`git log -1 --format=%H -- opto_50_cycles.m`.
 No remote is configured and no push is part of this work.
 
 ## Exact next steps for PO acceptance
 
 1. Make the existing Psychtoolbox installation available on the R2023b path;
    check `which Screen` and `which IOPort`. Set the actual COM port in both
-   acquisition scripts. Resolve PTB sync failures without disabling checks.
+   acquisition scripts. Both set `SkipSyncTests=1` automatically; no preliminary
+   MATLAB preference configuration is required. PTB timing qualification remains pending.
 2. Run `opto_calibration`. Check that the normal window moves and allows
    switching to the BBTK app. Move the window, drag/resize the patch under the
    sensor, and adjust sensitivity in BBTK. Refocus calibration and check SPACE,
