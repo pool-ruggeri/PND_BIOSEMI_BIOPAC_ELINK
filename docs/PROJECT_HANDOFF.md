@@ -1,4 +1,4 @@
-# M1 project handoff
+# M1 / M2 project handoff
 
 Delivery date: 2026-10-15; updated 2026-10-16 (Europe/Zurich). Status: software implemented; laboratory
 acceptance pending. Roles: PO = user; TL = ChatGPT; implementation = Codex.
@@ -15,6 +15,83 @@ and host serial-reception times remain separate fields.
 The PO's M1 scope is recorded in [DECISIONS.md](DECISIONS.md). All three scripts
 are implemented. The optional Python reference was read only. No external
 recording-system control, installation, firmware change, or cabling work occurred.
+
+## M2 numbered-circle delivery
+
+`numbered_circle_task.m` is the new independent executable. Set its `comPort`
+and run `numbered_circle_task` directly. All M1 scripts and production helpers
+are unchanged from `56985a5`. M2 reuses their serial/optical/display/cleanup/log
+functions, adding `m2_response.m` for eligibility and `m2_trials.m` for four
+buttons, accuracy, and original-hardware RT. The deterministic targets are
+`[1 2 3 4 1 2 3 4 1 2]`; digit N requires physical serial Button N.
+
+Initial Button 1 SYNC press/release is preserved, with no clock reset. Trials
+show 1000 ms fixation, 500 ms numbered circle, and a total 1500 ms response
+window measured from visual onset. The first parsed fresh B1..B4 press controls
+advancement; incorrect buttons advance just like correct buttons. An early
+press never truncates the stimulus. After offset, a response advances directly
+to 500 ms ITI; timeout waits only to onset+1500 ms plus 100 ms serial grace.
+The patch remains the shared fixed bottom-left 150 px black/white square.
+Visual durations retain M1's frame rounding; PTB timing remains unqualified.
+
+Live control never waits for optical pair completion. It uses any available
+onset match to reject hardware latency outside 0..1500 ms; otherwise it latches
+a receipt-window candidate provisionally. Final analysis runs the full M1
+optical classifier and computes RT only from retained ON and button hardware
+timestamps. Missing/ambiguous onset yields NaN RT and unverified response flags.
+Those observable digit/button responses can contribute accuracy, not RT means.
+Online control timestamps and a final-rejection flag expose any disagreement.
+Messages first received after deadline without a hardware anchor cannot qualify;
+hardware RT >1500 ms is always late. Grace receives bytes without extending the
+participant window. Final candidates must arrive before the recorded close
+boundary; reports beyond grace remain logged. No clocks are aligned/invented.
+
+Outputs use a unique `data/numbered_circle_task_*` folder and all existing raw,
+classified, pulse, flip, summary, and trial exports. New trial columns include
+digit/expected/actual button, outcome, four-button release pairing, hardware
+onset/offset/press/RT, live button/hardware timestamp/accuracy and
+receipt/processing/close/ITI times, artifact pairs,
+premature/late/extra, missing/ambiguous, and online-rejection flags. `sync.csv`
+separately exports `run.sync`. Completed no-response windows are TIMEOUT;
+aborted partial windows without a response INCOMPLETE, and untouched trials
+NOT_PRESENTED. Responses already acquired before abort remain preserved.
+
+M2 software validation on MATLAB R2023b Update 1:
+
+- Six focused analysis groups cover all four correct channels, incorrect input,
+  exact hardware deadline and grace bounds (1490/1500 accepted, 1501 rejected),
+  missing/ambiguous optical onset, equal-ms stream order, extra responses,
+  per-button releases, and incomplete/unpresented rows.
+- Seven synthetic real-script scenarios cover normal ten-choice runs, mixed
+  inputs, ESC, disconnect inside the response loop, occupied COM5, window-open
+  failure, and unexpected display closure. All use valid serial handle 0,
+  reject double closes, check restored preferences/no file leaks/no invalid
+  redraws, and verify exact raw chunk offsets after exceptions.
+- The mixed ten-trial fixture produces 5 correct, 1 incorrect, 4 timeouts;
+  hardware means are 522.5 ms correct / 598 ms all-response. It covers early
+  200 ms and late 900 ms advancement, held/premature B2 spanning trials,
+  extra presses, 2 optical artifact pairs, missing-onset NaN RT, and a 1490 ms
+  physical press received after 1500 ms. Stimuli stay 500 ms, fixation 1000 ms,
+  deadline is onset+1500 ms, and PC/HID key states never become responses.
+  A delayed fixation press initially seen before optical ON parsing is rejected
+  once that anchor arrives; stale provisional control timestamps are cleared.
+- All existing M1 tests still pass: 30 script scenarios, 11 offline groups
+  including 123 split positions, 10 optical groups, and all three historical
+  raw replays. Their recorded missed-flip/full-check failures remain preserved.
+- Code Analyzer: zero findings across 21 source/test files. Logs:
+  `.local/m2_analysis_checks.log`, `.local/m2_script_checks.log`.
+
+No new physical GUI, tPAD, TTL, or external-recorder validation was performed.
+The PO reports the M1 reference task physically tested; M2 needs a laboratory
+run with B1..B4 including wrong/missing responses, held-button/release behavior,
+optical chatter, an ESC abort, and all automatic TTL channels recorded with the
+existing approved setup. Sensitivity, physical TTL cleanliness, external trigger
+receipt, and scientifically qualified visual timing remain pending. EyeLink is deferred.
+
+M2 local commit: latest touching `numbered_circle_task.m`:
+`git log -1 --format=%H -- numbered_circle_task.m`. No remote or push.
+
+## M1 retained evidence
 
 PO sequence-classification correction (2026-10-16): inspected and replayed
 both requested physical recordings from exact raw bytes and chunk receipt times:
@@ -253,6 +330,7 @@ No remote is configured and no push is part of this work.
    optical onset/offset TTL transitions and their recording in each acquisition
    system. Record measurements/settings and PO acceptance before M2.
 
-M2 may add the PTB EyeLink interface after acceptance, reusing the tPAD reader.
+M2 is the four-choice task described above. EyeLink API integration remains
+deferred to a separately authorized milestone, reusing the tPAD reader.
 There is no implementation blocker; physical acceptance needs PO laboratory
 access and the existing PTB/hardware setup.

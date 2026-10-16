@@ -1,7 +1,8 @@
-# MATLAB / Psychtoolbox / BBTK tPAD - M1
+# MATLAB / Psychtoolbox / BBTK tPAD - M1 and M2
 
-Three small reference scripts demonstrate optical timing, Button 1 responses,
+Three M1 reference scripts demonstrate optical timing, Button 1 responses,
 an initial physical synchronization press, and automatic tPAD TTL event marking.
+M2 adds an independent four-choice numbered-circle task using the same helpers.
 Hardware acceptance is pending. All reported hardware times must come from
 received Mode 5 messages.
 
@@ -13,15 +14,16 @@ used. This project does not install software, change firmware, or control EyeLin
 
 Open MATLAB in this repository. Ensure `which Screen` and `which IOPort` resolve
 to the existing Psychtoolbox installation. Set `comPort = 'COM5'` at the top of
-**both** `opto_50_cycles.m` and `simple_task.m` to the tPAD port shown in Windows
+`opto_50_cycles.m`, `simple_task.m`, and `numbered_circle_task.m` to the tPAD port shown in Windows
 Device Manager. COM5 is a starting value from the optional Python reference,
 not a detected port. Close other applications using that port before acquisition.
 
-Run either acquisition script directly; calibration is optional:
+Run an acquisition script directly; calibration is optional:
 
 ```matlab
 opto_50_cycles
 simple_task
+numbered_circle_task
 ```
 
 - `opto_calibration` (optional): opens a normal, movable window, approximately 700 x 500
@@ -44,8 +46,10 @@ simple_task
   physical tPAD Button 1 at the synchronization screen. Ten trials follow:
   1 s fixation, 500 ms stimulus, a response window through 1500 ms after onset,
   and 500 ms ITI. Respond with Button 1. ESC saves partial data and exits.
+- `numbered_circle_task` (M2): ten numbered-circle trials; press the matching
+  physical Button 1..4. Its response-dependent advancement is described below.
 
-Both acquisition scripts use the same fixed **150 x 150 pixel square at the
+All acquisition scripts use the same fixed **150 x 150 pixel square at the
 exact bottom-left corner** of their full-screen display. `m1_patch` calculates
 `[0, winH - 150, 150, winH]` from the actual window dimensions and rejects a
 display smaller than 150 pixels in either dimension. No saved calibration file,
@@ -58,7 +62,7 @@ during each stimulus/white cycle. The actual fixed geometry is recorded in
 `session.mat`. Calibration utility metadata remains independent of acquisition.
 No physical centimeter size is assumed. The calibration GUI skips timing
 qualification and restores its prior PTB settings on exit. By PO decision,
-both acquisition scripts automatically set `SkipSyncTests=1` before opening a
+all acquisition scripts automatically set `SkipSyncTests=1` before opening a
 window and restore the previous value on completion, error, or ESC. No preliminary
 MATLAB preference command is needed. They print a warning: visual synchronization
 tests are disabled and `Screen('Flip')` timestamps are not yet scientifically
@@ -70,6 +74,58 @@ The window uses PTB's [GUI window flag](https://psychtoolbox.org/docs/kPsychGUIW
 and [GlobalRect](https://psychtoolbox.org/docs/Screen-GlobalRect) for its live
 client-area position. Calibration controls ignore keystrokes while the BBTK app
 has focus. No keyboard suppression or serial-port ownership is requested by calibration.
+
+## M2 numbered-circle task
+
+Start the external recorders, run `numbered_circle_task`, and press/release
+physical Button 1 at the existing synchronization screen. The SYNC timestamp
+is retained separately; it cannot become a trial response. No clock reset occurs.
+Targets are deterministic: `[1 2 3 4 1 2 3 4 1 2]`.
+
+Each trial shows 1000 ms fixation, then a centered white filled circle with a
+black digit for nominally 500 ms. The shared bottom-left 150 px optical patch
+is white during that stimulus and black otherwise. Durations use the same
+refresh-frame rounding as M1. The first fresh serial B1..B4 press is selected:
+matching the digit is CORRECT; a different button is INCORRECT. Both advance
+the task. Releases, additional/invalid presses, and held-button history remain logged.
+The PC keyboard supplies ESC only; there is no keyboard HID response fallback.
+
+The total response window ends 1500 ms after the stimulus onset flip, including
+the first 500 ms of visible stimulus. A press processed at 200 ms is latched
+immediately while the stimulus remains visible until 500 ms. A press at 900 ms
+starts ITI when processed. No response leads to timeout, followed by 500 ms ITI.
+A bounded **100 ms serial grace** after the nominal deadline receives split or
+USB-delayed messages; it never accepts hardware RT greater than 1500 ms.
+Responses received after grace remain in the logs but do not replace the trial
+response. Acquisition continues during stimulus, grace, ITI, and fixation.
+
+Online control uses parsed serial arrivals and any currently available hardware
+onset match; it never waits for a complete optical pulse. `m2_response` enforces
+hardware latency 0..1500 ms when an anchor exists. Without one, a candidate
+whose first byte arrived in the nominal receipt window can advance provisionally.
+Final `m2_trials` scoring uses the full M1 optical classification, original
+hardware times, and the recorded response-close boundary. Hardware RT is
+`button_press_ms - optical_on_ms`; no receipt/Flip timestamp substitutes for
+a missing anchor. Missing/ambiguous onset produces `NaN` RT and explicit
+unverified flags. Digit/button accuracy can still be observed, but those
+receipt-based responses are not qualified hardware RTs and are excluded from
+RT means. A provisional online response rejected by final hardware analysis
+is flagged; advancement cannot be undone. Severe delays remain a qualification limit.
+
+Each run uses `data/numbered_circle_task_<date>_<token>/` and the existing raw
+and classified exports. `trials.csv` includes target/expected/actual buttons,
+CORRECT/INCORRECT/TIMEOUT, hardware onset/offset/press/release/RT, PTB flips,
+online button/hardware timestamp/accuracy, receipt/processing and close times, premature/late/extra responses,
+optical artifact counts, and missing/ambiguous flags. Aborted partial windows
+without a response are INCOMPLETE; untouched rows are NOT_PRESENTED. `sync.csv` and `run.sync`
+save the separate synchronization event. The console reports counts, optical
+availability, SYNC, RT means, and completion/abort/error status.
+
+M2 leaves all three M1 scripts and shared acquisition code unchanged. It sets
+and restores `SkipSyncTests=1`, with the same unqualified-display-timing warning.
+Automatic hardware TTL configuration/wiring remains untouched for all four
+buttons and Optical 1; physical mapping, optical artifacts, and external TTL
+receipt still require laboratory qualification. EyeLink integration is deferred.
 
 ## Serial, timing, and TTL
 
@@ -87,7 +143,7 @@ Unmatched, ambiguous, duplicated, malformed, or reversed events remain visible.
 The optical test also checks consecutive hardware/display duration differences
 against a 50 ms tolerance and fails for missed scheduled flips.
 
-Both scripts classify Optical 1 reports after raw parsing with
+All acquisition scripts classify Optical 1 reports after raw parsing with
 `m1_classify_optical`. Consecutive Optical 1 ON/OFF records form complete pulse
 pairs in serial order, ignoring interleaved buttons. An intended pulse must
 have its ON and OFF in the corresponding presentation receipt gates, with
@@ -185,6 +241,7 @@ Generated data and calibration are ignored by Git.
 addpath('tests')
 run_offline_tests
 run_optical_filter_tests
+run_numbered_circle_tests
 run_script_smoke_tests
 run_lab_replay
 ```

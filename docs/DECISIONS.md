@@ -94,3 +94,52 @@
   implemented assumptions pending measurement of installed hardware/settings.
 
 No further PO architectural decision is required to implement this milestone.
+
+## M2 four-choice numbered-circle task (2026-10-16)
+
+- PO scope: add `numbered_circle_task.m`; leave `simple_task.m`,
+  `opto_50_cycles.m`, and `opto_calibration.m` intact as the M1 reference.
+  Reuse Mode 5 IOPort acquisition, parsing, optical classification, geometry,
+  cleanup, logging, and synchronization. No second serial framework or dependencies.
+- Ten targets `[1 2 3 4 1 2 3 4 1 2]`; white filled circle and black digit.
+  Fixation is 1000 ms, stimulus 500 ms, total response window 1500 ms from
+  onset, and ITI 500 ms. Visual durations retain M1's refresh-frame rounding.
+  The 150 px bottom-left optical patch is white only during stimulus.
+- Fresh physical B1..B4 press events over XiD supply all behavioral input.
+  The first eligible press determines accuracy: matching digit is CORRECT,
+  another button INCORRECT; both advance. A held button needs a new physical
+  press edge. Premature, late, extra, and release events remain in raw logs.
+  Keyboard HID is excluded; PC ESC still aborts safely.
+- Online parsed serial input controls advancement. Early responses are latched
+  immediately without shortening the 500 ms display; later responses start
+  ITI when processed. Missing responses wait to the nominal deadline plus
+  100 ms bounded serial grace, never another 1500 ms after offset. Polling
+  continues throughout; the normal final 500 ms drain is retained.
+- `m2_response` shares online/final eligibility. Available hardware anchors
+  require latency 0..1500 ms and stream order after optical ON. Without an
+  anchor, a receipt-window candidate may advance provisionally; no complete
+  ON/OFF pair is required for live response control. Post-deadline first bytes
+  without a hardware anchor cannot establish in-window eligibility.
+- Final `m2_trials` uses M1's full optical reconstruction. RT is exclusively
+  button hardware ms minus retained optical ON hardware ms. Missing/ambiguous
+  anchors leave RT NaN and mark the response unverified. Accuracy is observable
+  for such serial candidates, but RT means exclude unavailable values. A final
+  rejection/change of a provisional online response is flagged, not hidden.
+  No direct comparison or synchronization of PTB/tPAD absolute clocks occurs.
+- The live response-close boundary limits final candidates. A hardware-valid
+  press received in the 100 ms grace may count; hardware RT >1500 ms never
+  counts. Reports beyond grace remain auditable but cannot replace the first
+  response. Serial latency/ambiguous optics remain qualification limits.
+- Button 1 SYNC press/release precedes trials, retains original hardware ms,
+  and is excluded from responses. Save `run.sync` and `sync.csv`; do not reset
+  the hardware clock. Per-button release pairing spans trial boundaries.
+- Keep raw/processed messages and pulse classifications. Trial rows retain
+  target/button/outcome, original hardware RT fields, PTB presentation/control
+  times, optical artifacts, and missing/ambiguous/premature/late flags.
+  Partial aborted windows without responses are INCOMPLETE; unpresented trials
+  are NOT_PRESENTED. Responses already acquired before abort remain preserved.
+- Retain SkipSyncTests=1 with restoration and warnings. No software TTL, mode,
+  wiring, sensitivity, firmware, or EyeLink API changes. Physical qualification
+  of B1..B4/optical TTL outputs and recording remains the PO's laboratory work.
+- Local `main` commit only, no remote or push. M2 reuses the existing simulated
+  PTB/IOPort fixture and adds small focused hardware-eligibility tests.

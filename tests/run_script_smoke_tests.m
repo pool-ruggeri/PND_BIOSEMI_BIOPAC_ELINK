@@ -213,7 +213,85 @@ io = tpad_io('close', io); %#ok<NASGU>
 assert(M1_MOCK.serialCloses == 2 && M1_MOCK.invalidSerialCloses == 0);
 assert(isequal(fopen('all'), openFiles));
 fprintf('PASS: 30 simulated script scenarios plus geometry and repeated-cleanup/handle-0 checks.\n');
+% M2 reuses this same serial/display fixture; the M1 reference sources stay intact.
+for scenario = {'numbered', 'numbered_mixed', 'numbered_abort', ...
+        'numbered_disconnect', 'numbered_serial_error', 'numbered_open_error', 'numbered_flip_error'}
+    reset_mock(scenario{1}); execute_script('numbered_circle_task');
+    r = latest_run(project, 'numbered_circle_task');
+    if ismember(scenario{1}, {'numbered', 'numbered_mixed'})
+        assert_numbered_run(r, strcmp(scenario{1}, 'numbered_mixed'));
+    elseif strcmp(scenario{1}, 'numbered_abort')
+        assert(strcmp(r.status, 'aborted') && r.summary.presented_trials == 1);
+        assert(~isempty(r.messages) && ~isempty(r.raw_messages));
+    else
+        assert(strcmp(r.status, 'error'));
+    end
+    if ~isempty(M1_MOCK.commands), assert(isequal(M1_MOCK.commands, {'X', sprintf('MOD5\r\n')})); end
+    if isfile(fullfile(r.folder, 'raw_chunks.csv'))
+        chunks = readtable(fullfile(r.folder, 'raw_chunks.csv'));
+        raw = read_bytes(fullfile(r.folder, 'raw_rx.bin'));
+        if ~isempty(chunks)
+            assert(isequal(chunks.byte_offset, [0; cumsum(chunks.byte_count(1:end - 1))]));
+            assert(sum(chunks.byte_count) == numel(raw));
+        end
+    end
+end
+fprintf('PASS: 7 M2 script scenarios, including mixed four-button responses, grace, missing onset and cleanup.\n');
 fprintf('No physical GUI/hardware validation.\n');
+end
+
+function assert_numbered_run(r, mixed)
+global M1_MOCK %#ok<GVMIS>
+assert(strcmp(r.status, 'complete') && r.summary.presented_trials == 10);
+assert(isequal([r.trials.displayed_digit], [1 2 3 4 1 2 3 4 1 2]));
+on = r.flips(strcmp({r.flips.phase}, 'stimulus_on'));
+off = r.flips(strcmp({r.flips.phase}, 'stimulus_off'));
+fixation = r.flips(strcmp({r.flips.phase}, 'fixation'));
+assert(all(abs([off.onset_ptb] - [on.onset_ptb] - 0.5) < 1e-6));
+assert(all(abs([on.onset_ptb] - [fixation.onset_ptb] - 1.0) < 1e-6));
+assert(all(abs([r.trials.response_deadline_ptb] - [on.onset_ptb] - 1.5) < 1e-6));
+assert(isequal(M1_MOCK.digits, r.targets) && r.sync.release_tpad_ms > r.sync.press_tpad_ms);
+assert(sum(strcmp({r.messages.label}, 'SYNC_BUTTON_PRESS')) == 1);
+syncRelease = r.messages([r.messages.sequence] == r.sync.release_sequence);
+assert(fixation(1).onset_ptb >= syncRelease.rx_complete_ptb);
+assert(~any([r.trials.button_press_sequence] == r.sync.press_sequence));
+assert(isfile(fullfile(r.folder, 'sync.csv')) && isfile(fullfile(r.folder, 'trials.csv')));
+assert(isequal(r.patch.rect, [0 930 150 1080]) && ~isfield(r.raw_messages, 'optical_glitch'));
+assert(all([r.trials.iti_start_ptb] >= [off.onset_ptb]));
+assert(all([fixation(2:end).onset_ptb] - [r.trials(1:9).iti_start_ptb] >= 0.5));
+assert(all([r.trials.online_processed_ptb] >= [r.trials.online_received_ptb] | ...
+    isnan([r.trials.online_received_ptb])));
+if ~mixed
+    assert(r.summary.correct == 10 && r.summary.timeouts == 0 && all([r.trials.rt_ms] == 200));
+    assert(isequal([r.trials.online_button], r.targets) && all([r.trials.online_correct] == 1));
+    assert(isequal([r.trials.online_button_ms], [r.trials.button_press_ms]));
+    assert(all([r.trials.online_processed_ptb] < [off.onset_ptb]));
+    assert(all([r.trials.iti_start_ptb] - [on.onset_ptb] < 0.55));
+    assert(r.summary.valid_optical_onsets == 10 && r.summary.valid_optical_offsets == 10);
+else
+    assert(r.summary.correct == 5 && r.summary.incorrect == 1 && r.summary.timeouts == 4);
+    assert(isequal({r.trials.outcome}, {'CORRECT','INCORRECT','TIMEOUT','TIMEOUT', ...
+        'CORRECT','TIMEOUT','CORRECT','CORRECT','CORRECT','TIMEOUT'}));
+    assert(r.trials(2).actual_button == 3 && r.trials(2).rt_ms == 900);
+    assert(r.trials(2).online_button == 3 && r.trials(2).online_correct == 0);
+    assert(r.trials(2).iti_start_ptb - on(2).onset_ptb > 0.9 && ...
+        r.trials(2).iti_start_ptb - on(2).onset_ptb < 0.94);
+    assert(r.trials(4).late_response && r.trials(10).late_response);
+    assert(r.trials(3).premature_response && isnan(r.trials(3).online_response_sequence));
+    assert(isnan(r.trials(3).online_received_ptb) && isnan(r.trials(3).online_processed_ptb));
+    assert(r.trials(5).extra_presses == 1 && r.trials(5).actual_button == 1);
+    assert(r.trials(6).premature_response && isnan(r.trials(6).actual_button));
+    heldRelease = r.messages(strcmp({r.messages.channel}, 'A') & [r.messages.sensor] == 2 & ...
+        strcmp({r.messages.edge}, 'R') & [r.messages.trial] == 6);
+    assert(numel(heldRelease) == 1 && heldRelease.rx_first_ptb > fixation(7).onset_ptb);
+    assert(r.trials(7).missing_optical_on && isnan(r.trials(7).rt_ms));
+    assert(strcmp(r.trials(7).response_validity, 'unverified_missing_optical_onset'));
+    assert(r.trials(7).iti_start_ptb - on(7).onset_ptb < 0.55);
+    assert(r.trials(8).rt_ms == 200 && r.trials(8).optical_artifact_pairs == 2);
+    assert(r.trials(9).rt_ms == 1490 && r.trials(9).serial_grace_used);
+    assert(r.trials(9).iti_start_ptb - on(9).onset_ptb < 1.6);
+    assert(all([r.trials([3 4 6 10]).iti_start_ptb] - [on([3 4 6 10]).onset_ptb] >= 1.6 - 1e-6));
+end
 end
 
 function assert_fixed_patch(run)
@@ -281,6 +359,7 @@ M1_MOCK = struct('dispatch', @dispatch, 'scenario', scenario, 'time', 0, ...
     'draftWhite', false, 'white', false, 'draftSync', false, 'syncSent', false, ...
     'draftRect', [], 'cursorVisible', true, 'listenChar', 0, ...
     'history', struct('rect', {}, 'white', {}, 'origin', {}, 'phase', {}), ...
+    'digits', [], 'draftDigit', NaN, 'fixations', 0, 'textSize', 24, ...
     'draftPhase', '', 'invalidDraws', 0, 'invalidSerialCloses', 0, ...
     'serialOpens', 0, 'serialCloses', 0, ...
     'preferences', struct('WindowShieldingLevel', 2000, 'SkipSyncTests', 0), ...
@@ -335,6 +414,9 @@ switch name
             keys(1) = M1_MOCK.syncSent && M1_MOCK.time > 0.72;
         elseif strcmp(s, 'cycles_init_abort')
             keys(1) = M1_MOCK.serialOpen && M1_MOCK.time > 0.02;
+        elseif startsWith(s, 'numbered')
+            keys(3:6) = true; % Irrelevant PC/HID keys must never become responses.
+            keys(1) = strcmp(s, 'numbered_abort') && M1_MOCK.time > 2.1;
         end
         varargout = {any(keys), M1_MOCK.time, keys};
     case 'GetMouse'
@@ -364,7 +446,13 @@ switch name
     case 'ShowCursor'
         M1_MOCK.cursorVisible = true;
     case 'DrawFormattedText'
-        M1_MOCK.draftSync = true; M1_MOCK.draftPhase = 'sync';
+        if startsWith(s, 'numbered') && numel(varargin{2}) == 1
+            assert(ismember(varargin{2}, '1234') && isequal(varargin{5}, [0 0 0]));
+            assert(M1_MOCK.textSize == 48 && strcmp(M1_MOCK.draftPhase, 'stimulus'));
+            M1_MOCK.draftDigit = str2double(varargin{2});
+        else
+            M1_MOCK.draftSync = true; M1_MOCK.draftPhase = 'sync';
+        end
     case 'Screen'
         switch varargin{1}
             case 'Screens'
@@ -407,6 +495,7 @@ switch name
                 end
                 M1_MOCK.displayOpen = true; varargout = {100, M1_MOCK.windowLocal};
             case 'GetFlipInterval', varargout = {1/60};
+            case 'TextSize', M1_MOCK.textSize = varargin{3};
             case 'FillRect'
                 if ~M1_MOCK.displayOpen
                     M1_MOCK.invalidDraws = M1_MOCK.invalidDraws + 1;
@@ -415,7 +504,9 @@ switch name
                 assert(isequal(varargin{3}, [0 0 0]) || isequal(varargin{3}, [255 255 255]));
                 M1_MOCK.draftWhite = any(varargin{3} > 0);
                 M1_MOCK.draftRect = [];
-                if numel(varargin) == 3, M1_MOCK.draftPhase = 'blank'; end
+                if numel(varargin) == 3
+                    M1_MOCK.draftPhase = 'blank'; M1_MOCK.draftDigit = NaN;
+                end
                 if numel(varargin) >= 4, M1_MOCK.draftRect = varargin{4}; end
             case 'DrawLines', M1_MOCK.draftPhase = 'fixation';
             case 'FillOval', M1_MOCK.draftPhase = 'stimulus';
@@ -434,27 +525,48 @@ switch name
                 M1_MOCK.history(end + 1) = struct('rect', M1_MOCK.draftRect, ...
                     'white', M1_MOCK.draftWhite, 'origin', M1_MOCK.windowGlobal(1:2), ...
                     'phase', M1_MOCK.draftPhase);
+                if startsWith(s, 'numbered') && strcmp(M1_MOCK.draftPhase, 'fixation')
+                    M1_MOCK.fixations = M1_MOCK.fixations + 1;
+                    if strcmp(s, 'numbered_mixed') && M1_MOCK.fixations == 6
+                        queue_event(vbl + 0.204, sprintf('A P 2 %d', stamp(vbl + 0.2)));
+                        queue_event(vbl + 3.204, sprintf('A R 2 %d', stamp(vbl + 3.2)));
+                    end
+                end
+                if startsWith(s, 'numbered') && M1_MOCK.draftWhite
+                    assert(isequal(M1_MOCK.draftRect, [0 930 150 1080]));
+                    M1_MOCK.digits(end + 1) = M1_MOCK.draftDigit;
+                end
                 if M1_MOCK.mode5 && M1_MOCK.draftWhite ~= M1_MOCK.white
                     edge = 'R';
                     if M1_MOCK.draftWhite
                         edge = 'P'; M1_MOCK.onsets = M1_MOCK.onsets + 1;
                     end
-                    missing = strcmp(s, 'task_missing_onset') && ...
-                        M1_MOCK.onsets == 3 && edge == 'P';
+                    missing = (strcmp(s, 'task_missing_onset') && M1_MOCK.onsets == 3 || ...
+                        strcmp(s, 'numbered_mixed') && M1_MOCK.onsets == 7) && edge == 'P';
+                    chatter = strcmp(s, 'numbered_mixed') && M1_MOCK.onsets == 8;
                     if ~strcmp(s, 'cycles_silent') && ~missing
                         if (endsWith(s, '_onset_chatter') || contains(s, '_both_chatter')) && edge == 'P'
                             queue_event(vbl + 0.001, sprintf('C P 1 %d', stamp(vbl)));
                             queue_event(vbl + 0.002, sprintf('C R 1 %d', stamp(vbl)));
                         end
-                        queue_event(vbl + 0.004, sprintf('C %s 1 %d', edge, stamp(vbl)));
+                        offset = 0;
+                        if chatter && edge == 'P'
+                            queue_event(vbl + 0.001, sprintf('C P 1 %d', stamp(vbl)));
+                            queue_event(vbl + 0.002, sprintf('C R 1 %d', stamp(vbl) + 2));
+                            offset = 2;
+                        end
+                        queue_event(vbl + 0.004, sprintf('C %s 1 %d', edge, stamp(vbl) + offset));
                     end
-                    if (endsWith(s, '_glitch') || contains(s, '_both_chatter')) && edge == 'R'
+                    if (endsWith(s, '_glitch') || contains(s, '_both_chatter') || chatter) && edge == 'R'
                         queue_event(vbl + 0.005, sprintf('C P 1 %d', stamp(vbl) + 1));
                         queue_event(vbl + 0.007, sprintf('C R 1 %d', stamp(vbl) + 3));
                     end
                     if startsWith(s, 'task') && edge == 'P'
                         queue_event(vbl + 0.254, sprintf('A P 1 %d', stamp(vbl + 0.25)));
                         queue_event(vbl + 0.904, sprintf('A R 1 %d', stamp(vbl + 0.9)));
+                    end
+                    if startsWith(s, 'numbered') && edge == 'P'
+                        queue_numbered_response(s, M1_MOCK.onsets, vbl);
                     end
                 end
                 M1_MOCK.white = M1_MOCK.draftWhite;
@@ -497,6 +609,8 @@ switch name
                 bytes = uint8([]); err = '';
                 if strcmp(s, 'task_disconnect') && M1_MOCK.time > 3
                     err = 'Injected serial disconnection';
+                elseif strcmp(s, 'numbered_disconnect') && M1_MOCK.time > 2.1
+                    err = 'Injected serial disconnection';
                 elseif ~isempty(M1_MOCK.queue) && M1_MOCK.queue(1).ready <= M1_MOCK.time
                     n = min(3, numel(M1_MOCK.queue(1).bytes));
                     bytes = M1_MOCK.queue(1).bytes(1:n);
@@ -523,4 +637,30 @@ function queue_event(ready, text)
 global M1_MOCK %#ok<GVMIS>
 M1_MOCK.queue(end + 1) = struct('ready', ready, 'bytes', uint8(sprintf('%s\r\n', text)));
 [~, order] = sort([M1_MOCK.queue.ready]); M1_MOCK.queue = M1_MOCK.queue(order);
+end
+
+function queue_numbered_response(scenario, trial, onset)
+targets = [1 2 3 4 1 2 3 4 1 2]; button = targets(trial);
+hardwareDelay = 0.2; receiptDelay = 0.204;
+if strcmp(scenario, 'numbered_mixed')
+    switch trial
+        case 3
+            % Physical fixation press arrives before the optical ON is parsed.
+            queue_event(onset + 0.001, sprintf('A P 4 %d', stamp(onset) - 1));
+            queue_event(onset + 0.054, sprintf('A R 4 %d', stamp(onset + 0.05)));
+            return;
+        case 6, return;
+        case 2, button = 3; hardwareDelay = 0.9; receiptDelay = 0.904;
+        case 4, hardwareDelay = 1.55; receiptDelay = 1.554;
+        case 8, hardwareDelay = 0.202; receiptDelay = 0.206;
+        case 9, hardwareDelay = 1.49; receiptDelay = 1.510;
+        case 10, hardwareDelay = 1.501; receiptDelay = 1.505;
+    end
+end
+queue_event(onset + receiptDelay, sprintf('A P %d %d', button, stamp(onset + hardwareDelay)));
+queue_event(onset + receiptDelay + 0.05, sprintf('A R %d %d', button, stamp(onset + hardwareDelay + 0.05)));
+if strcmp(scenario, 'numbered_mixed') && trial == 5
+    queue_event(onset + 0.304, sprintf('A P 2 %d', stamp(onset + 0.3)));
+    queue_event(onset + 0.354, sprintf('A R 2 %d', stamp(onset + 0.35)));
+end
 end
