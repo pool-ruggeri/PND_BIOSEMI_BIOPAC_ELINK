@@ -146,6 +146,7 @@ for t = 1:numel(records)
     for j = 1:numel(messages)
         m = messages(j);
         if m.rx_first_ptb < records(t).fixation_ptb || m.rx_first_ptb >= stop, continue; end
+        if isfield(m, 'optical_glitch') && m.optical_glitch, continue; end
         issue = m.duplicate || m.out_of_order || m.state_error || ...
             ismember(m.kind, {'malformed', 'incomplete', 'unexpected', 'mode', 'number'});
         if strcmp(m.kind, 'event')

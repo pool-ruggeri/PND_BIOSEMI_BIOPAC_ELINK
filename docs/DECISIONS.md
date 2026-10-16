@@ -40,6 +40,32 @@
 - Binary RX journals and hex messages retain original input, including setup,
   malformed lines, and unfinished fragments. Duplicate events are logged rather
   than dropped. No fabricated timestamps, timer unwrapping, or clock alignment.
+- PO optical hotfix (2026-10-16): classify short post-OFF Optical 1 ON/OFF
+  pairs after parsing, preserving every raw record. Hardware-only thresholds
+  are inclusive 0..20 ms OFF-to-ON and 0..5 ms ON duration, following an intact
+  ON interval longer than 5 ms. Require chronological, nonduplicate, state-valid
+  edges, the same intended OFF receipt context for the anchor and pair, and
+  the preceding ON in the immediately preceding intended ON context.
+  Receipt context only protects intended transitions; it does not supply filter
+  durations. Startup/incomplete and ambiguous onset reports remain retained.
+  Both scripts use this shared classifier. Buttons and hardware RT are unchanged.
+  Raw/filtered counts and explicit ignored-pair annotations remain inspectable.
+  Raw totals include startup; filtered validation starts at the first intended
+  optical flip and ends after the final drain, retaining the existing interval.
+- Real raw replay: 13 short pulses last 1..3 ms, normal pulses 501..504 ms.
+  Eleven short pairs follow OFF by 0..1 ms; two at intended ON follow OFF by
+  495/496 ms. Keep the latter: 63/63 raw becomes 52/52 retained, 48/50 matched,
+  2 missing matches and 6 unexpected reports, still FAIL. Cycles 22/23 have
+  ambiguous ON candidates. Do not relax criteria to manufacture a PASS.
+- Software reconstruction does not clean already emitted tPAD TTL pulses.
+  External systems may record the short pulses. No automatic TTL settings or
+  serial commands change. Sensitivity/threshold cause is unverified; PO/BBTK
+  sensitivity investigation and separate physical optical/TTL qualification
+  remain pending.
+- Serial cleanup uses one shared resource owner across struct snapshots and
+  the exit guard. Valid handle 0 closes once; repeated cleanup cannot close a
+  later reused port/file ID. Normal exit, ESC, partial setup and unexpected
+  failures retain the same protocol and acquired-data preservation.
 - Optical matching uses nonoverlapping 250 ms host receipt gates. This deliberately
   rejects late/ambiguous reports instead of shifting assignments after a loss.
   The 50 ms duration tolerance compares elapsed durations, not clock epochs.
@@ -49,7 +75,7 @@
   Release pairing spans trials. Other presses retain receipt-based context,
   which is less certain under excessive serial latency.
 - A completed run describes script execution, not hardware acceptance. Optical
-  PASS additionally requires all 100 matched reports, correct totals, no
+  PASS additionally requires all 100 filtered matched reports, correct totals, no
   anomalies, consistent durations, and no missed scheduled flips.
 - PO performs physical acceptance. Manufacturer-documented TTL mappings are
   implemented assumptions pending measurement of installed hardware/settings.

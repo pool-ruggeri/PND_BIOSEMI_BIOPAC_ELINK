@@ -6,7 +6,8 @@ acceptance pending. Roles: PO = user; TL = ChatGPT; implementation = Codex.
 ## Architecture and scope
 
 `tpad_parse.m` incrementally decodes text XiD messages. `tpad_io.m` owns IOPort
-polling and raw journals. `m1_match_optical.m` and `m1_trials.m` associate reports
+polling and raw journals. `m1_classify_optical.m` annotates optical exclusions
+without changing records. `m1_match_optical.m` and `m1_trials.m` associate reports
 and calculate hardware-only RTs. Small display, patch, wait, cleanup, and log
 functions support the three scripts. MATLAB/PTB seconds, tPAD milliseconds,
 and host serial-reception times remain separate fields.
@@ -14,6 +15,62 @@ and host serial-reception times remain separate fields.
 The PO's M1 scope is recorded in [DECISIONS.md](DECISIONS.md). All three scripts
 are implemented. The optional Python reference was read only. No external
 recording-system control, installation, firmware change, or cabling work occurred.
+
+PO optical/cleanup hotfix (2026-10-16): inspected the physical run
+`data/opto_50_cycles_20261016_101138_tp8074c4e9_ed58_4b9e_9dae_55037be1da10`
+before implementing the classifier. Raw bytes, chunk boundaries, original parser
+records/flags/timestamps, flips, matches, and pulse/gap durations were inspected.
+All 128 parsed records (including two mode replies) are reproduced exactly
+apart from analysis labels/trial assignment. The source run is never overwritten.
+
+| Historical run metric | Original analysis | Corrected replay |
+| --- | --- | --- |
+| Raw ON/OFF | 63/63 | 63/63 |
+| Ignored post-OFF pairs | 0 | 11 |
+| Retained ON/OFF | 63/63 | 52/52 |
+| Matched ON/OFF | 48/39 | 48/50 |
+| Missing expected matches | 13 | 2 |
+| Unexpected retained reports | 39 | 6 |
+| Optical result | FAIL | FAIL |
+
+The 50 normal ON intervals last 501..504 ms. Thirteen short intervals last
+1..3 ms; eleven start 0..1 ms after OFF. The other two start 496 and 495 ms
+after OFF, respectively, at intended ON in cycles 22 and 23. In each, a short
+P/R is immediately followed by another P; both ON candidates remain ambiguous.
+The six unexpected retained reports are those two P/R/P bursts. No missing
+onset is invented and the hardware-cleanliness issue remains unresolved.
+
+The shared deterministic classifier uses original tPAD milliseconds only for
+inclusive 0..20 ms OFF-to-ON and 0..5 ms ON duration tests. It requires an
+intact preceding ON longer than 5 ms, ordered/state-valid/nonduplicate edges,
+and a common intended OFF receipt gate for the anchor OFF and extra pair;
+the preceding ON must be in the immediately preceding intended ON gate.
+The existing 250 ms receipt gate supplies only intended-transition protection;
+host times never supply filter durations. Close intended transitions, startup,
+incomplete pairs, and ambiguous onsets are preserved. Raw bytes and original
+hardware/receipt times, anomaly flags, and record order are unchanged. Analysis
+adds `optical_class` and `optical_glitch`; exclusions only
+affect matching/counting and task optical anomaly counts. Button parsing,
+pairing, hardware-only RT, synchronization, and trial boundaries are unchanged.
+Raw/filtered totals are printed and saved; task optical counts additionally
+appear in `optical_summary.csv` and `run.optical_summary`. Raw totals include
+setup/startup; filtered validation retains the existing interval from the first
+intended optical flip through the final drain.
+
+The invalid-handle-0 error came from normal close followed by an exit guard
+holding a stale struct copy. `tpad_io` now supplies shared nested ownership
+callbacks, registering each acquired port/file immediately. Cleanup clears
+ownership before releasing resources. Handle 0 is valid while owned; repeated
+cleanup does nothing, including after an ID is reused by a later connection.
+Normal completion, ESC, failed/partial setup, disconnection, and unexpected
+errors preserve raw journals and partial MAT/CSV output.
+
+Software exclusions cannot remove automatic TTL pulses already emitted by
+the tPAD; external systems may record them. Sensitivity/threshold cause is
+suspected but unverified. PO consultation with BBTK and physical sensitivity,
+optical/TTL cleanliness, and external recorder qualification remain pending.
+Serial commands, TTL configuration, display geometry/RGB, timing schedule,
+SkipSyncTests behavior, and the optional calibration source remain unchanged.
 
 PO fixed-patch decision (2026-10-16): both acquisition scripts now open without
 calibration and calculate the same 150 x 150 px bottom-left square from the
@@ -28,8 +85,8 @@ script reports a single clear port failure with the instruction to close the
 port owner. Cleanup skips drawing after a serial failure and checks live window
 handles before other final redraws. Invalid negative serial handles are not
 closed. Resources and prior sync preferences are restored; BBTK is not terminated.
-XiD protocol, hardware timestamps, automatic TTL, matching, trial/cycle schedule,
-and log writers are unchanged.
+That fixed-patch change preserved XiD protocol, hardware timestamps, automatic
+TTL, matching, trial/cycle schedule, and log writers.
 
 PO hotfix (2026-10-16): the laboratory PC reported a VBL synchronization failure
 in `opto_50_cycles`. Both acquisition scripts now set `SkipSyncTests=1` before
@@ -79,7 +136,8 @@ retry succeeded. `Screen` and `IOPort` did not resolve on the default R2023b
 path. Agent checks installed no software and opened no real PTB display or
 serial port. The PO reported that windowed calibration works; the subsequent
 physical attempts exposed VBL synchronization failure and BBTK holding COM5.
-The fixed-patch build has not yet been physically retested.
+The PO subsequently completed the fixed-patch physical run analyzed above.
+The new filter/ownership correction has not been physically tested by the agent.
 
 Final checks on MATLAB R2023b Update 1 passed:
 
@@ -88,7 +146,14 @@ Final checks on MATLAB R2023b Update 1 passed:
   duplicate/reversed edges, missing/wrong/late optical reports, delayed
   responses/releases across trial boundaries, missing-onset RT handling,
   missing responses, and MAT/CSV exports including scalar early-failure data.
-- 22 simulated script scenarios plus geometry bounds checks: both acquisition
+- 7 focused optical regression groups cover normal 500 ms pulses, 2 ms bounce,
+  inclusive/exclusive thresholds, intended closely spaced transitions, startup,
+  incomplete/missing/flagged events, ambiguous onset bursts, cross-trial receipt,
+  record preservation/idempotence, and unchanged button timestamps/RT.
+- Read-only historical raw replay reproduces all original records and verifies
+  the exact corrected counts and unresolved FAIL above. New replay exports are
+  under `.local/lab_replay/`; the test explicitly skips if source data is absent.
+- 27 simulated script scenarios plus geometry/ownership checks: both acquisition
   scripts run before calibration has ever executed; later saved calibration
   geometry and malformed utility output are ignored. Both use `[0 930 150 1080]`
   on 1920 x 1080; the helper returns `[0 618 150 768]` on 1024 x 768 and rejects
@@ -100,15 +165,19 @@ Final checks on MATLAB R2023b Update 1 passed:
   and returned serial-open errors, invalid serial handles, and unexpected
   display closure. Checks require one serial error report, zero invalid redraws,
   no journal-file leaks, and restored sync preferences (initial 0, 1, and 2).
+  All serial successes now use handle 0 and reject double closes. Additional
+  cases cover setup write failure, acknowledgement timeout, setup ESC, bounce
+  in both complete scripts (raw 100/100 -> 50/50 cycles, 20/20 -> 10/10 task),
+  and repeated stale cleanup after the port/file IDs have been reused.
 - Existing optional-calibration tests still cover mixed key-name cells, window
   movement, primary/secondary desktop coordinates, focus, controls, and saving
   or byte-for-byte preservation on ESC. The calibration source is unchanged.
-- MATLAB Code Analyzer: zero findings across all 14 MATLAB source/test files.
+- MATLAB Code Analyzer: zero findings across all 17 MATLAB source/test files.
   Intentional test-only shared state has explicit analyzer annotations.
 
 The synthetic `input` stub produces an expected built-in-shadowing warning.
 Test code restores the prior MATLAB folder/path. Full console output is in
-`.local/fixed_patch_checks.log`; test artifacts are ignored by Git. Synthetic test
+`.local/optical_glitch_checks.log`; test artifacts are ignored by Git. Synthetic test
 success does not qualify physical timing or trigger delivery.
 
 Known limits: single selected display/sensor/button, frame-quantized durations,
@@ -123,7 +192,8 @@ context less certain even when hardware RT remains recoverable.
 Branch: `main`. Baseline M1 is commit `cbad781153ce7700d2e3aa413cee57fa8b99b026`,
 tagged `m1`. Prior pixel UX correction: `0ca0c32`; window/keyboard hotfix: `321c800`.
 Sync-preference hotfix: `39a393e`. The fixed-patch hotfix is the latest commit
-touching `m1_patch.m`: `git log -1 --format=%H -- m1_patch.m`.
+touching `m1_patch.m`: `e092baf`. The optical/cleanup hotfix is the latest commit
+touching `m1_classify_optical.m`: `git log -1 --format=%H -- m1_classify_optical.m`.
 No remote is configured and no push is part of this work.
 
 ## Exact next steps for PO acceptance
@@ -138,8 +208,13 @@ No remote is configured and no push is part of this work.
    installed firmware, sensitivity, and smoothing settings. Close the BBTK app
    or release its COM port before acquisition. Verify a deliberately occupied
    port produces one clear error and safe cleanup on the laboratory PC.
-3. Run `opto_50_cycles`; require 50 ON, 50 OFF, all matched in sequence,
-   zero anomalies, and optical result PASS. Inspect actual durations and flips.
+3. After BBTK sensitivity advice, run `opto_50_cycles` while recording the
+   optical TTL output with the existing approved setup. Inspect both raw and
+   filtered records; require 50/50 raw and retained, zero ignored pairs, all
+   matched in sequence, zero anomalies, and optical result PASS for a clean
+   sensor stream. Verify physical TTL has no short extra pulses separately.
+   A filtered PASS alone does not qualify physical output. Inspect durations
+   and flips; keep the current 52/52 replay FAIL as unresolved evidence.
 4. Start the external recorders. Run `simple_task`, press/release physical
    Button 1 once to synchronize, and perform ten trials. Confirm the separate
    sync event, optical edges, hardware RTs, missing/premature responses, and

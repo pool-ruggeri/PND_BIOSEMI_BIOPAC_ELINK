@@ -168,7 +168,46 @@ for scenario = {'cycles_flip_error', 'task_flip_error'}
     assert(strcmp(r.status, 'error') && contains(r.error, 'Injected display closure'));
     assert(~M1_MOCK.serialOpen && ~M1_MOCK.displayOpen);
 end
-fprintf('PASS: 22 simulated script scenarios plus fixed-geometry bounds checks.\n');
+for scenario = {'cycles_glitch', 'task_glitch'}
+    reset_mock(scenario{1});
+    script = 'simple_task';
+    if startsWith(scenario{1}, 'cycles'), script = 'opto_50_cycles'; end
+    execute_script(script); r = latest_run(project, script);
+    if startsWith(scenario{1}, 'cycles')
+        assert(strcmp(r.summary.result, 'PASS') && r.summary.ignored_glitch_pairs == 50);
+        assert(r.summary.raw_detected_on == 100 && r.summary.detected_on == 50);
+    else
+        assert(r.summary.valid_responses == 10 && all([r.trials.rt_ms] == 250));
+        assert(r.summary.event_issues == 0 && r.optical_summary.ignored_glitch_pairs == 10);
+        assert(r.optical_summary.raw_detected_on == 20 && r.optical_summary.detected_on == 10);
+        assert(r.optical_summary.unexpected_optical_events == 0);
+        assert(isfile(fullfile(r.folder, 'optical_summary.csv')));
+    end
+    assert_fixed_patch(r);
+    assert(sum([r.messages.optical_glitch]) > 0);
+end
+for scenario = {'cycles_init_write_error', 'cycles_init_timeout', 'cycles_init_abort'}
+    reset_mock(scenario{1}); execute_script('opto_50_cycles');
+    r = latest_run(project, 'opto_50_cycles');
+    assert(~strcmp(r.status, 'complete') && ~isempty(r.serial_failure));
+    assert(isfile(fullfile(r.folder, 'raw_rx.bin')) && M1_MOCK.serialCloses == 1);
+end
+% Repeated stale cleanup must not close a newly reused port/file handle.
+reset_mock('ownership'); journals = tempname(work); mkdir(journals);
+openFiles = fopen('all');
+io = tpad_io('open', [], 'COM5', journals); stale = io;
+assert(isempty(io.failure) && io.handle == 0);
+io = tpad_io('close', io); %#ok<NASGU>
+m1_cleanup(stale, false); m1_cleanup(stale, false);
+assert(M1_MOCK.serialCloses == 1 && isequal(fopen('all'), openFiles));
+otherJournals = tempname(work); mkdir(otherJournals);
+io = tpad_io('open', [], 'COM5', otherJournals);
+liveFiles = fopen('all'); m1_cleanup(stale, false);
+assert(M1_MOCK.serialOpen && isequal(fopen('all'), liveFiles));
+io = tpad_io('close', io); %#ok<NASGU>
+assert(M1_MOCK.serialCloses == 2 && M1_MOCK.invalidSerialCloses == 0);
+assert(isequal(fopen('all'), openFiles));
+fprintf('PASS: 27 simulated script scenarios plus geometry and repeated-cleanup/handle-0 checks.\n');
 fprintf('No physical GUI/hardware validation.\n');
 end
 
@@ -202,6 +241,7 @@ fprintf('%s', output);
 assert(M1_MOCK.preferences.SkipSyncTests == previousSync, 'SkipSyncTests was not restored.');
 assert(isequal(fopen('all'), openFiles), 'A journal file was left open.');
 assert(M1_MOCK.invalidDraws == 0 && M1_MOCK.invalidSerialCloses == 0);
+assert(M1_MOCK.serialCloses == M1_MOCK.serialOpens && ~M1_MOCK.serialOpen);
 if contains(M1_MOCK.scenario, 'serial_error')
     assert(count(output, 'tPAD serial failure on COM5:') == 1);
     assert(~contains(output, 'Invalid window'));
@@ -237,6 +277,7 @@ M1_MOCK = struct('dispatch', @dispatch, 'scenario', scenario, 'time', 0, ...
     'draftRect', [], 'cursorVisible', true, 'listenChar', 0, ...
     'history', struct('rect', {}, 'white', {}, 'origin', {}, 'phase', {}), ...
     'draftPhase', '', 'invalidDraws', 0, 'invalidSerialCloses', 0, ...
+    'serialOpens', 0, 'serialCloses', 0, ...
     'preferences', struct('WindowShieldingLevel', 2000, 'SkipSyncTests', 0), ...
     'screenGlobal', screenGlobal, 'windowGlobal', [], 'windowLocal', [], ...
     'windowMoved', false, 'backgroundPolls', 0, ...
@@ -287,6 +328,8 @@ switch name
             keys(1) = M1_MOCK.time > 3;
         elseif strcmp(s, 'task_abort_sync')
             keys(1) = M1_MOCK.syncSent && M1_MOCK.time > 0.72;
+        elseif strcmp(s, 'cycles_init_abort')
+            keys(1) = M1_MOCK.serialOpen && M1_MOCK.time > 0.02;
         end
         varargout = {any(keys), M1_MOCK.time, keys};
     case 'GetMouse'
@@ -396,6 +439,10 @@ switch name
                     if ~strcmp(s, 'cycles_silent') && ~missing
                         queue_event(vbl + 0.004, sprintf('C %s 1 %d', edge, stamp(vbl)));
                     end
+                    if endsWith(s, '_glitch') && edge == 'R'
+                        queue_event(vbl + 0.005, sprintf('C P 1 %d', stamp(vbl) + 1));
+                        queue_event(vbl + 0.007, sprintf('C R 1 %d', stamp(vbl) + 3));
+                    end
                     if startsWith(s, 'task') && edge == 'P'
                         queue_event(vbl + 0.254, sprintf('A P 1 %d', stamp(vbl + 0.25)));
                         queue_event(vbl + 0.904, sprintf('A R 1 %d', stamp(vbl + 0.9)));
@@ -413,16 +460,23 @@ switch name
     case 'IOPort'
         switch varargin{1}
             case 'OpenSerialPort'
+                assert(contains(varargin{3}, 'BaudRate=115200 DataBits=8 Parity=None StopBits=1'));
+                assert(contains(varargin{3}, 'FlowControl=None'));
                 if contains(s, 'serial_error')
                     if endsWith(s, '_closed'), M1_MOCK.displayOpen = false; end
                     if startsWith(s, 'cycles'), error('COM5 is in use by the BBTK application'); end
                     varargout = {-1, 'COM5 is in use by the BBTK application'}; return;
                 end
-                M1_MOCK.serialOpen = true; varargout = {71, ''};
+                assert(~M1_MOCK.serialOpen);
+                M1_MOCK.serialOpen = true;
+                M1_MOCK.serialOpens = M1_MOCK.serialOpens + 1;
+                varargout = {0, ''}; % PTB's first valid handle can be zero.
             case 'Write'
                 text = char(varargin{3}); M1_MOCK.commands{end + 1} = text;
+                if strcmp(s, 'cycles_init_write_error'), error('Injected setup write failure'); end
                 if strcmp(text, 'X')
-                    M1_MOCK.mode5 = false; queue_event(M1_MOCK.time, 'MODE 0:');
+                    M1_MOCK.mode5 = false;
+                    if ~strcmp(s, 'cycles_init_timeout'), queue_event(M1_MOCK.time, 'MODE 0:'); end
                 elseif strcmp(text, sprintf('MOD5\r\n'))
                     M1_MOCK.mode5 = true; queue_event(M1_MOCK.time, 'MODE 5:');
                 else
@@ -442,11 +496,12 @@ switch name
                 end
                 varargout = {bytes, M1_MOCK.time, err};
             case 'Close'
-                if varargin{2} < 0
+                if varargin{2} ~= 0 || ~M1_MOCK.serialOpen
                     M1_MOCK.invalidSerialCloses = M1_MOCK.invalidSerialCloses + 1;
                     error('Invalid serial handle.');
                 end
                 M1_MOCK.serialOpen = false;
+                M1_MOCK.serialCloses = M1_MOCK.serialCloses + 1;
         end
 end
 end

@@ -7,10 +7,14 @@ switch action
         io = struct('handle', [], 'rawFid', -1, 'chunkFid', -1, 'txFid', -1, ...
             'parser', [], 'messages', [], 'offset', 0, 'failure', '', ...
             'aborted', false, 'mode5Confirmed', false, 'port', port);
+        [io.own, io.release] = resource_owner;
         try
             io.rawFid = fopen(fullfile(folder, 'raw_rx.bin'), 'wb');
+            io.own('file', io.rawFid);
             io.chunkFid = fopen(fullfile(folder, 'raw_chunks.csv'), 'w');
+            io.own('file', io.chunkFid);
             io.txFid = fopen(fullfile(folder, 'commands.csv'), 'w');
+            io.own('file', io.txFid);
             assert(all([io.rawFid io.chunkFid io.txFid] >= 0), ...
                 'M1:Logging', 'Cannot open serial journals.');
             fprintf(io.chunkFid, 'byte_offset,byte_count,read_complete_ptb,poll_ptb\n');
@@ -19,6 +23,7 @@ switch action
                 'FlowControl=None Terminator=-1 ReadTimeout=0.001 ' ...
                 'SendTimeout=0.1 InputBufferSize=65536'];
             [io.handle, err] = IOPort('OpenSerialPort', port, config);
+            io.own('port', io.handle);
             assert(isempty(err) && io.handle >= 0, 'M1:SerialOpen', '%s', err);
             % No Purge: every byte read, including setup replies, is retained.
             io = send_command(io, uint8('X'));
@@ -66,6 +71,37 @@ switch action
     otherwise
         error('M1:Action', 'Unknown serial action: %s', action);
 end
+end
+
+function [own, release] = resource_owner
+% Nested handles share ownership even in the onCleanup snapshot of io.
+% Clear ownership before closing, so repeated cleanup cannot close a reused ID.
+port = []; files = [];
+own = @adopt; release = @close_owned;
+    function adopt(kind, value)
+        if isempty(value) || value < 0, return; end
+        if strcmp(kind, 'port')
+            port = value; % Zero is a valid IOPort handle.
+        else
+            files(end + 1) = value;
+        end
+    end
+    function close_owned
+        handle = port; port = [];
+        if ~isempty(handle)
+            try
+                IOPort('Close', handle);
+            catch
+            end
+        end
+        ownedFiles = files; files = [];
+        for fid = ownedFiles
+            try
+                fclose(fid);
+            catch
+            end
+        end
+    end
 end
 
 function io = send_command(io, bytes)

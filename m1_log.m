@@ -45,6 +45,10 @@ switch action
         if ~isempty(run.trials)
             writetable(struct2table(run.trials, 'AsArray', true), fullfile(run.folder, 'trials.csv'));
         end
+        if isfield(run, 'optical_summary')
+            writetable(struct2table(run.optical_summary, 'AsArray', true), ...
+                fullfile(run.folder, 'optical_summary.csv'));
+        end
         if isfield(run, 'matches') && ~isempty(run.matches)
             writetable(struct2table(run.matches, 'AsArray', true), fullfile(run.folder, 'optical_matches.csv'));
         end

@@ -87,6 +87,35 @@ Unmatched, ambiguous, duplicated, malformed, or reversed events remain visible.
 The optical test also checks consecutive hardware/display duration differences
 against a 50 ms tolerance and fails for missed scheduled flips.
 
+Both scripts classify Optical 1 reports after raw parsing with
+`m1_classify_optical`. An extra ON/OFF pair is ignored in analysis only when
+its ON begins **0..20 ms after OFF** and lasts **0..5 ms**, using original tPAD
+milliseconds. The preceding intact ON interval must exceed 5 ms; all four
+edges must be ordered and free of duplicate/state errors. The anchor OFF and
+extra pair must also share one intended OFF receipt gate, with the preceding
+ON in its immediately preceding intended ON gate. This existing gate
+provides presentation context only: it protects intended ON transitions,
+including closely spaced ones; neither host clock supplies filter durations.
+Startup OFFs, unfinished pairs, ambiguous onset bursts, and reports outside
+that context are retained. No timestamps, records, order, or buttons are changed.
+
+`optical_class` distinguishes `VALID_OPTICAL_ON/OFF`,
+`IGNORED_OPTICAL_GLITCH_ON/OFF`, and invalid flagged reports; `optical_glitch`
+marks analysis exclusions. VALID means retained for matching, not hardware
+qualification. Raw and filtered counts and ignored-pair totals are reported
+separately. Raw totals include setup/startup; filtered validation counts cover
+the interval from the first intended optical flip through the final drain.
+PASS still requires sequence/matching, durations, and all existing
+checks; it describes software reconstruction, not clean physical sensor output.
+
+The PO's physical run `opto_50_cycles_20261016_101138_tp8074c4e9_ed58_4b9e_9dae_55037be1da10`
+contains 63 ON/63 OFF: 50 intervals lasting 501..504 ms and 13 lasting 1..3 ms.
+Only 11 short pairs follow OFF by 0..1 ms. Two others follow OFF by 495/496 ms
+at intended ON in cycles 22/23 and remain ambiguous; they are not filtered.
+Read-only raw replay produces **52 ON/52 OFF retained, 48 ON/50 OFF matched,
+2 missing matches, 6 unexpected retained events: FAIL** (previously 13 missing,
+39 unexpected). Thresholds were not broadened to force 50/50.
+
 Task RT is `(button_press_ms - optical_on_ms)`, using only hardware timestamps,
 with a 0..1500 ms window and serial event order to break equal-ms onset ties.
 The first eligible press is selected; releases are paired across trial boundaries.
@@ -102,6 +131,10 @@ settings can affect physical trailing edges. The code leaves those settings
 unchanged. Record and verify the installed settings with the BBTK app during
 laboratory acceptance. No cabling changes are part of M1. Receipt by BioSemi,
 BIOPAC, and EyeLink has **not** been physically verified.
+Software exclusions cannot remove TTL pulses already emitted by the tPAD;
+external recorders may retain those short pulses. Sensitivity/threshold behavior
+is suspected, not established. The PO is consulting BBTK; physical optical/TTL
+cleanliness remains unqualified until sensitivity and trigger output are tested.
 
 Protocol sources: [BBTK tPAD manual](https://www.blackboxtoolkit.com/docs/pdf/TPadv1r1.pdf),
 sections 2.2, 7, 11.10, 11.12, 12.2, 17, and 18.5;
@@ -118,9 +151,10 @@ Each acquisition creates a unique folder under `data/`:
 | `session.mat` | Authoritative complete/partial run, configuration, sync marker, matches, errors |
 | `raw_rx.bin`, `raw_chunks.csv` | Exact received bytes, zero-based offsets, read/poll host times |
 | `commands.csv` | Initialization bytes in hex and host send times |
-| `messages.csv`, `events.csv` | Parsed messages and events, raw line hex, anomaly flags, labels |
+| `messages.csv`, `events.csv` | All parsed messages/events, raw hex, flags, labels, optical classifications |
 | `optical_events.csv`, `optical_matches.csv` | Optical reports and per-transition matches/missing values |
 | `flips.csv`, `trials.csv`, `summary.csv` | PTB timestamps, task responses, run counts/results |
+| `optical_summary.csv` (task) | Raw/filtered optical totals, matches, ignored pairs, unexpected optical reports |
 | `status.txt` | Completion/abort/error status and failure text |
 
 CSVs for empty categories are omitted; `session.mat` preserves empty/partial
@@ -132,19 +166,28 @@ Generated data and calibration are ignored by Git.
 ```matlab
 addpath('tests')
 run_offline_tests
+run_optical_filter_tests
 run_script_smoke_tests
+run_lab_replay
 ```
 
-The second test runs script copies with isolated synthetic PTB/serial functions
+The script smoke test runs copies with isolated synthetic PTB/serial functions
 under `.local/script_smoke/`; it opens no real hardware and restores the MATLAB
 path afterwards. Do not add `.local` or this whole repository recursively to
 the MATLAB path. See [handoff](docs/PROJECT_HANDOFF.md) for actual results.
+The replay reads the named historical run without overwriting it and exports
+new analysis under `.local/lab_replay/`. It skips explicitly if that Git-ignored
+laboratory data is absent. A passing replay regression verifies the remaining
+FAIL result, not successful hardware qualification.
 
 If the port cannot open, check Device Manager and close the BBTK app/terminals.
 The known COM5 conflict is the BBTK app owning the port. Failed acquisition
 reports the port error, closes resources, and skips cleanup drawing after a
 serial failure. Final redraws also check that the window is still open. The
 scripts do not terminate the BBTK app automatically.
+Serial and journal ownership is shared with the exit guard: explicit close,
+abort/error cleanup, and repeated stale cleanup release each resource once.
+Handle 0 is accepted while owned; a stale guard cannot close a reused handle.
 Missing mode acknowledgement stops acquisition and saves the error. For missing
 optical events, check patch placement, sensor sensitivity, and the BBTK sensor
 check utility. The acquisition scripts already set `SkipSyncTests=1`; persistent

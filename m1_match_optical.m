@@ -3,7 +3,21 @@ function [messages, matches, summary] = m1_match_optical(messages, flips, ...
 %M1_MATCH_OPTICAL Conservatively associate events with isolated visual edges.
 % A host receipt gate identifies a candidate transition, not clock alignment.
 % Late/ambiguous reports stay unmatched. No timestamp or edge is invented.
-transitions = flips(~cellfun('isempty', {flips.expected_edge}));
+transitions = flips;
+if ~isempty(flips), transitions = flips(~cellfun('isempty', {flips.expected_edge})); end
+% Presentation context is a safeguard, not a source of filter durations.
+% Any report in an intended ON gate (even an ambiguous one) is protected.
+transitionContext = zeros(1, numel(messages));
+for k = 1:numel(transitions)
+    if isempty(messages), break; end
+    f = transitions(k);
+    stop = f.onset_ptb + maxLatency;
+    if k < numel(transitions), stop = min(stop, transitions(k + 1).onset_ptb); end
+    gate = [messages.rx_first_ptb] >= f.onset_ptb & [messages.rx_first_ptb] < stop;
+    gateIndex = -k; if f.expected_edge == 'R', gateIndex = k; end
+    transitionContext(gate) = gateIndex;
+end
+messages = m1_classify_optical(messages, transitionContext);
 template = struct('flip_index', 0, 'trial', 0, 'edge', '', 'event_sequence', NaN, ...
     'tpad_ms', NaN, 'candidates', 0);
 matches = repmat(template, numel(transitions), 1);
@@ -20,6 +34,10 @@ for k = 1:numel(transitions)
                 m.rx_first_ptb >= f.onset_ptb && ...
                 m.rx_first_ptb < stop
             messages(j).trial = f.trial;
+            if m.optical_glitch
+                messages(j).label = m.optical_class;
+                continue;
+            end
             messages(j).label = 'UNMATCHED_OPTICAL';
             if m.edge == f.expected_edge && ...
                     ~m.duplicate && ~m.out_of_order && ~m.state_error
@@ -39,15 +57,28 @@ for k = 1:numel(transitions)
     end
 end
 summary = struct('expected_on', expectedCycles, 'detected_on', 0, ...
+    'raw_detected_on', 0, 'raw_detected_off', 0, 'ignored_glitch_pairs', 0, ...
     'expected_off', expectedCycles, 'detected_off', 0, 'matched_on', 0, ...
     'matched_off', 0, 'missing_events', 2 * expectedCycles, ...
-    'duplicate_events', 0, 'unexpected_events', 0, 'out_of_order_events', 0, ...
+    'duplicate_events', 0, 'unexpected_events', 0, 'unexpected_optical_events', 0, ...
+    'out_of_order_events', 0, ...
     'malformed_messages', 0, 'state_errors', 0, 'timing_errors', 0, ...
     'missed_flip_deadlines', 0, 'presented_transitions', numel(transitions), ...
     'result', 'FAIL');
+% Raw totals include setup/startup reports, including runs with no flips.
+if ~isempty(messages)
+    opto = strcmp({messages.kind}, 'event') & strcmp({messages.channel}, 'C') & ...
+        [messages.sensor] == 1;
+    summary.raw_detected_on = sum(opto & strcmp({messages.edge}, 'P'));
+    summary.raw_detected_off = sum(opto & strcmp({messages.edge}, 'R'));
+    summary.ignored_glitch_pairs = sum(opto & [messages.optical_glitch] & ...
+        strcmp({messages.edge}, 'P'));
+end
 if isempty(transitions), return; end
-active = messages([messages.rx_first_ptb] >= transitions(1).onset_ptb);
+active = messages;
+if ~isempty(active), active = active([active.rx_first_ptb] >= transitions(1).onset_ptb); end
 if ~isempty(active)
+    active = active(~[active.optical_glitch]);
     opto = strcmp({active.kind}, 'event') & strcmp({active.channel}, 'C') & ...
         [active.sensor] == 1;
     summary.detected_on = sum(opto & strcmp({active.edge}, 'P'));
@@ -57,6 +88,7 @@ if ~isempty(active)
     summary.state_errors = sum([active.state_error]);
     summary.malformed_messages = sum(ismember({active.kind}, {'malformed', 'incomplete'}));
     matched = ismember([active.sequence], [matches.event_sequence]);
+    summary.unexpected_optical_events = sum(opto & ~matched & ~[active.duplicate]);
     summary.unexpected_events = sum((strcmp({active.kind}, 'event') | ...
         strcmp({active.kind}, 'unexpected')) & ~matched & ~[active.duplicate]);
     % Setup mode replies are outside this interval; any later reply is unexpected.
