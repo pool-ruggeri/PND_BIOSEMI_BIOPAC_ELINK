@@ -172,3 +172,50 @@ No further PO architectural decision is required to implement this milestone.
   EyeLink; full display timing; EyeLink 1000 Plus software integration; and
   the BBTK optical sensitivity investigation. Publication adds no hardware,
   timing, serial, trigger, or integration changes.
+
+
+## M3 continuous EyeLink integration (2026-10-19)
+
+- TL/PO authorizes the audited M3 design as an independent
+  `numbered_circle_eyelink.m`; keep every M1/M2 production file unchanged and
+  reuse serial, optical, geometry, response and logging helpers. One small
+  EyeLink owner provides separate shared lifecycle/recovery state.
+- Correct the audit's EDF claim: `dontOpenExisting` never provided reliable
+  protection and newer PTB rejects a nonzero flag. Use OpenFile without it
+  only after local history checks, a persisted run/name/destination mapping,
+  and explicit operator confirmation that the proposed Host filename is unused.
+  Randomness is not a guarantee. No destructive Host collision test, automatic
+  overwrite, or Host deletion is permitted. A wrong human confirmation remains
+  a risk until a non-destructive Host existence check is separately verified.
+- Require real normal connection, reject dummy/broadcast/foreign ownership,
+  and log tracker/version data. Read required GAZE file-sample and
+  FIXATION/SACCADE/BLINK/MESSAGE file-event availability; disabled or
+  unverifiable settings stop for operator/PO action without reconfiguration.
+  Standard calibration AND validation require explicit operator quality
+  acceptance; no numerical thresholds or Host geometry/eye/rate/filter changes
+  are invented. Only actual display-pixel coordinates and run preamble are set.
+- Start exactly one file-sample/event recording before physical tPAD SYNC,
+  after first TRIALID 1. The pretrial SYNC interval is the prestimulus portion
+  of Data Viewer Trial 1. Do not introduce an eleventh trial or duplicate first
+  boundary. Initial SYNC remains a separate original-timestamp MATLAB event.
+- Use manufacturer DISPLAY_COORDS/TRIALID/!V TRIAL_VAR/TRIAL_RESULT syntax and
+  custom SESSION_START/TPAD_SYNC/STIMULUS_ONSET/STIMULUS_OFFSET/RESPONSE/SESSION_END
+  labels. Clearly name online snapshot variables. Final MATLAB optical-to-button
+  hardware RT, accuracy and validity are authoritative; do not retrofit closed
+  Data Viewer trials or transform PTB/tPAD/EyeLink clocks. Ethernet MSG is not TTL INPUT.
+- Preserve M2's ten targets, timing, four serial buttons, patch, raw records,
+  classifier, final RT and serial-controlled advancement. No software TTL.
+  Message submission status/duration and explicit poll gaps are logged. Keep
+  blocking setup/file commands outside trials; send markers after Flips and
+  variable bursts within the fixed ITI. Detected >=250 ms serial interruption
+  or an exhausted ITI is an error, not grounds to expand tolerances/windows.
+- Save tPAD results before independent, exactly-once EyeLink finalization and
+  explicit-destination transfer. Verify positive bytes and exact local size;
+  retain partial files and Host originals, refuse existing destinations, and
+  preserve recovery metadata even if transfer fails. No reconnect/resume or
+  dependency on a still-open display during recovery.
+- Offline mocks and regressions can complete software delivery. Real connection,
+  calibration, recording, gaze/event EDF contents, Data Viewer ten-trial import,
+  abort/transfer recovery and integrated timing remain controlled lab acceptance.
+  Full display and external TTL qualification remain separate; do not configure
+  EyeLink physical digital INPUT, networking, firmware or installed software.

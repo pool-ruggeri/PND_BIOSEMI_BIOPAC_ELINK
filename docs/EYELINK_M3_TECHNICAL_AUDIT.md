@@ -1,8 +1,17 @@
 # M3 EyeLink 1000 Plus technical audit
 
 Audit date: 2026-10-19, Europe/Zurich. PO: user; TL: ChatGPT;
-implementation/audit: Codex. **Audit only; M3 is not implemented or authorized
-for implementation by this document.**
+implementation/audit: Codex. Original audit commit: `5c8580a`. **M3 was
+subsequently authorized and implemented on 2026-10-19. Physical EyeLink
+qualification remains pending.**
+
+Critical correction: the original audit overstated the obsolete OpenFile flag.
+Current [official PTB documentation](https://psychtoolbox.org/docs/Eyelink-OpenFile)
+states that `dontOpenExisting` never worked reliably; newer builds reject a
+nonzero flag. Older installed help is misleading. M3 never uses that flag:
+it checks local filename history, persists the run mapping, and requires
+explicit operator confirmation of Host nonexistence before `OpenFile`.
+No destructive Host collision test is allowed.
 
 Repository: [pool-ruggeri/PND_BIOSEMI_BIOPAC_ELINK](https://github.com/pool-ruggeri/PND_BIOSEMI_BIOPAC_ELINK)
 (private). Audited baseline: `59da7a921314b8ffb634a0539915e8a1ca5b1875`.
@@ -11,8 +20,9 @@ Local and GitHub `main` matched before this audit; the M2 implementation is
 
 ## A. Executive technical verdict
 
-**READY WITH CONSTRAINTS for a subsequent, TL-approved implementation. Not
-qualified for participant acquisition or successful hardware integration.**
+**Original audit: READY WITH CONSTRAINTS. Subsequent approved software
+implementation is complete; offline tests do not qualify participant
+acquisition or successful hardware integration.**
 
 The installed EyeLink MEX loads in MATLAB R2023b Update 1 and reports the
 installed Developer's Kit library version. Its architecture matches MATLAB.
@@ -36,12 +46,12 @@ The constraints are concrete:
    wholesale or silently change those settings.
 4. The first Data Viewer trial must encompass the pretrial SYNC interval if
    the MRI example's method is used to prevent an extra initial trial. This
-   proposed scope must be accepted by the TL.
+   scope was approved by the TL for M3.
 5. Final M2 hardware RTs are calculated after acquisition. Live Data Viewer
    trial variables can only be explicitly identified snapshots. Section F
    specifies the proposed distinction; final RTs must never be presented as
-   already final during an open trial. TL approval of this reporting policy
-   is required before coding it.
+   already final during an open trial. The TL approved clearly labeled live
+   snapshots with the final MATLAB table authoritative.
 
 No actual tracker initialization, calibration, recording, Host file operation,
 participant session, or network/Host configuration change was performed.
@@ -194,15 +204,15 @@ queries do not establish successful Host execution.
 | `Eyelink('Initialize', callback)` | 0 success, -1 error; can register `PsychEyelinkDispatchCallback` directly | H1 implements this. Not called; direct initialization is an alternative if avoiding the helper's dummy prompt is approved |
 | `Eyelink('SetAddress', address)` | API present; set before initialization for a non-default address | S1 32-34. Default documented Host address still needs physical confirmation; not called |
 | `Eyelink('IsConnected')` | 1 normal connection, 0 disconnected, -1 dummy, 2 broadcast | Installed help executed; connection query itself not used as a hardware test |
-| `Eyelink('OpenFile', name, 1)` | 0 success, otherwise error; optional nonzero `dontOpenExisting` refuses an existing file and may raise an error. Default flag is 0 | S1 59-64 / S2 66-72 show status checking but omit overwrite protection. The installed MEX help explicitly supports the protective flag |
+| `Eyelink('OpenFile', name)` | 0 success, otherwise error; existing Host files can be overwritten. The old optional flag is unreliable and is rejected by newer builds | S1 59-64 / S2 66-72 check status. M3 requires operator-confirmed nonexistence and local-history checks before this call |
 | `EyelinkInitDefaults(window)`, `EyelinkUpdateDefaults(el)` [H2] | Create/pass graphics defaults and callback state; InitDefaults may send screen coordinates when connected | S1 115-143; S2 125-143. Files resolve; not executed with a real window |
 | `EyelinkDoTrackerSetup(el)` [H3] | Interactive setup wraps native `StartSetup`, returns its result; calibration and validation are operator-controlled | S1 152-154; S2 170-172. Not run; returning from setup alone does not certify validation quality |
 | `EyelinkDoDriftCorrection(el, x, y)` [H3] | Helper initially assumes success; returns 0 on disconnection/termination; ESC may loop back to setup | S1 201-203; S2 195-197. Not run; 1000 Plus defaults to a drift check according to the example, not a promise of applied correction |
 | `Eyelink('CalMessage')` | Returns result and text associated with last calibration/validation/drift result | M1 API documentation inspected; result interpretation and acceptable error limits need controlled validation |
-| `Eyelink('StartRecording', 1, 1, 0, 0)` | Requests file samples and events, with no online sample/event stream requested; start error must be checked, 0 required | S1 211-213; S2 209-211 demonstrate start and 100 ms preroll using defaults. Explicit file-only flags are the proposed M3 choice, not a tested Host operation |
+| `Eyelink('StartRecording', 1, 1, 0, 0)` | Requests file samples and events, with no online sample/event stream requested; start error must be checked, 0 required | S1 211-213; S2 209-211 demonstrate start and 100 ms preroll using defaults. Explicit file-only flags are the implemented M3 choice, not a physically tested Host operation |
 | `Eyelink('CheckRecording')` | 0 means in progress; nonzero indicates abort/error/disconnection. Abort handling can invoke Host abort behavior | S1 235-247; S2 297-337. Help executed, actual recording not tested |
 | `Eyelink('Message', '%s', text)` | Returns send-error status. Native formatting documents character/integer arguments only | S1 223-225, 286-294; S2 272-283, 347-354. Preformat fractional PTB values with MATLAB `sprintf` into `text`; do not pass `%f` directly to the native formatter |
-| `Eyelink('Command', ...)` | Returns command result; allows up to 500 ms for completion | S1 89-98, 140-147; S2 97-106. Setup/cleanup only in proposed design |
+| `Eyelink('Command', ...)` | Returns command result; allows up to 500 ms for completion | S1 89-98, 140-147; S2 97-106. Setup/cleanup only in implemented design |
 | `Eyelink('SetOfflineMode')` | Waits for the mode transition | S1 308; S2 376. Keep outside timed presentation/polling intervals |
 | `Eyelink('StopRecording')` | Stops eye recording; this call has no documented success output in installed MATLAB help | S1 280-282; S2 363-366. Track ownership and preserve failure/unknown state |
 | `Eyelink('CloseFile')` | 0 success, otherwise error | S1 311; S2 379. Successful close precedes transfer |
@@ -216,7 +226,9 @@ event contents still depend on the installed Host configuration; see E.
 
 ## E. Recommended lifecycle and continuous recording
 
-This is a proposed implementation specification, pending TL approval.
+This lifecycle was approved for implementation. `numbered_circle_eyelink.m`
+and the dedicated shared owner `m3_eyelink.m` implement it; physical execution
+remains a later controlled test.
 
 1. Create the normal unique local run folder using `m1_log('new', ...)` under
    `data/`, with the new script name. Establish independent shared EyeLink
@@ -226,9 +238,13 @@ This is a proposed implementation specification, pending TL approval.
    Initialize the real connection with callbacks, check success/dummy outputs
    and `IsConnected == 1`. Record actual SDK/MEX/Host versions; no silent dummy
    fallback in the acquisition executable.
-3. Choose/persist the Host filename and local destination mapping, then open
-   using `OpenFile(..., 1)`. Require success before marking file ownership.
-   Add a short run-ID preamble immediately after opening.
+3. Select a short candidate unused in local historical mappings/EDF names and
+   persist the run-ID/Host-name/local-destination mapping. Require the operator
+   to inspect the Host and type `UNUSED <basename>`; refusal cancels without
+   creating a file. Recheck local history, checkpoint confirmation, then call
+   `OpenFile(hostName)` without an overwrite flag. Record ambiguous create
+   attempts for recovery and require success before recording. Add a run-ID
+   preamble immediately after opening.
 4. Open the same full-screen display using `m1_display`, `SkipSyncTests=1`,
    unchanged bottom-left `m1_patch` geometry/RGB, and existing restoration
    guards. Setup may open the display before connection instead if callback
@@ -280,7 +296,7 @@ This is a proposed implementation specification, pending TL approval.
     records separately. Save the normal MATLAB outputs and recovery state
     before a potentially slow EDF transfer. Serial resources are closed exactly
     once using existing ownership; EyeLink recovery must not depend on them.
-14. Send available final-analysis annotations and `SESSION_END` if connected.
+14. Send `SESSION_END` if recording was started and still connected.
     Allow approximately 100 ms eye-recording tail after the last annotation,
     then stop once, enter offline mode, close the owned EDF and check its
     status, transfer a copy, verify it, then shut down the owned connection.
@@ -296,19 +312,19 @@ trials without stopping. Its first `TRIALID` is deliberately before
 such block for SYNC and all ten trials. Data Viewer M4 section 5.1.1.4 explicitly
 supports splitting a continuous recording with these messages.
 
-**Proposed scope:** first `TRIALID 1` before recording, so the SYNC waiting
+**Approved scope:** first `TRIALID 1` before recording, so the SYNC waiting
 period is the pre-stimulus part of Data Viewer trial 1; it is not an eleventh
 behavioral trial. Stimulus-specific analyses use `STIMULUS_ONSET` and
 `STIMULUS_OFFSET`, rather than assuming Data Viewer trial zero equals stimulus
 onset. Do not send a second `TRIALID 1` after SYNC. The MATLAB `run.sync` and
-trial records retain their existing separation. This first-trial scope is an
-explicit TL review point. An alternative separate SYNC Data Viewer segment
-would produce an extra analysis segment and needs a different approved spec.
+trial records retain their existing separation. This first-trial scope is
+approved. The first physical test must verify exactly ten Data Viewer trial
+containers; no separate SYNC trial is implemented.
 
 `SESSION_END` and later recovery information outside a closed trial remain
 EDF messages, but may not appear inside Data Viewer's parsed trial views.
 
-## F. Proposed Data Viewer and custom event protocol
+## F. Approved Data Viewer and custom event protocol
 
 The labels in the custom rows below have no built-in trial parsing semantics.
 Ethernet messages are annotations, not physical INPUT events. No leading
@@ -326,10 +342,10 @@ been qualified.
 | `RESPONSE trial=<n> button=<b> tpad_ms=<integer> sequence=<integer> stage=ONLINE` | Custom; when a fresh online candidate is selected; never reinterpret it as final scoring or as the physical button timestamp in the EyeLink clock |
 | `!V TRIAL_VAR <name> <value>` | Manufacturer-defined variable; after that trial's TRIALID and before its TRIAL_RESULT; one label/value per message |
 | `TRIAL_RESULT 0` | Manufacturer-defined end for a normally completed trial; 0 does not mean the answer was correct |
-| `TRIAL_RESULT 3` / `TRIAL_RESULT -1` | Proposed abort/error result for the one currently open trial, if still connected; no results for unpresented trials. Accuracy is stored separately |
+| `TRIAL_RESULT 3` / `TRIAL_RESULT -1` | Implemented abort/error result for the one currently open trial, if still connected; no results for unpresented trials. Accuracy is stored separately |
 | `SESSION_END status=<COMPLETE/ABORTED/ERROR>` | Custom; after trials/final annotations, before final recording tail and stop |
 
-Values must be single tokens (underscore instead of internal spaces). Proposed
+Values must be single tokens (underscore instead of internal spaces). Implemented
 variables are `trial_number`, `displayed_digit`, `expected_button`,
 `actual_button_snapshot`, `correct_snapshot`, `outcome_snapshot`,
 `hardware_rt_ms_snapshot`, `response_validity_snapshot`, and
@@ -361,26 +377,18 @@ after every trial has ended does not retroactively update those trials.
 Re-emitting TRIALIDs after acquisition would create new wrongly timed trials.
 Do neither. [Manufacturer protocol, trial-variable scope](https://www.sr-research.com/support/thread-83.html).
 
-**Recommended minimal policy for TL approval:** send clearly named online
-snapshot variables inside each trial; retain authoritative final RT/outcome in
-the unchanged MATLAB final analysis. After final analysis, optionally include
-one custom `FINAL_TRIAL_DATA trial=<n> ... stage=FINAL` message per presented
-trial, with the final helper-derived values, before SESSION_END. These are
-delayed summary annotations in the raw EDF, not retrospectively timed events
-or native per-trial Data Viewer variables. Never replace the earlier timestamps
-or claim that these summaries repair Data Viewer trial variables. The local
-final table remains authoritative and any snapshot/final disagreement is
-reported. If the TL instead requires final RTs automatically populated into
-every native Data Viewer trial-variable row, that requirement needs a separate
-approved postprocessing/import or finalization design; it cannot be promised
-by the existing live message sequence alone.
-
-This limitation is an audit finding, not a change to M2 or an approved new
-analysis feature.
+**Approved and implemented policy:** send clearly named online snapshot
+variables inside each trial and retain authoritative final RT, accuracy and
+validity in the existing MATLAB post-acquisition analysis. No final values are
+retroactively inserted into closed Data Viewer trials, and no delayed marker
+is backdated. The final table exposes any rejection of an online candidate.
+A regression delays an optical OFF line across the ITI boundary: the EDF
+snapshot is `NA` while final MATLAB reconstruction correctly yields 200 ms.
+This is synthetic evidence, not a hardware result.
 
 ## G. Integration points and unchanged M2 reuse
 
-| Current source location | Proposed M3 integration point |
+| Current source location | M3 integration point |
 | --- | --- |
 | `numbered_circle_task.m:6-17` | New run name, small EyeLink ownership/status fields and recovery checkpoint; preserve M2 record schema |
 | Lines 20-32, display/serial setup | Connection/EDF/defaults/setup before active task; preserve SkipSyncTests restoration and serial-open failure behavior |
@@ -424,7 +432,7 @@ Embedding `tpad_ms` or `flip_ptb` in a message is data preservation, not a clock
 conversion. No offset, drift estimate, tracker-time conversion, timestamp
 backdating, or Data Viewer numeric offset prefix belongs in this milestone.
 
-Proposed scheduling rules:
+Implemented scheduling rules:
 
 - `Command` can wait up to 500 ms. Configuration commands, status-drawing
   commands, file operations, offline transitions, calibration/drift setup,
@@ -472,14 +480,18 @@ first position), with `.edf` as the extension. Use a stricter safe subset:
 Generate the suffix per run; do not derive uniqueness solely from the date or
 truncate the long MATLAB run ID and assume uniqueness.
 
-Randomness reduces collisions; **`OpenFile(hostName, 1)` provides the
-non-overwriting guard**. Persist candidate name, full local run ID, and local
-destination in the run's recovery checkpoint before the Host create attempt.
-Capture returned errors/exceptions. On an identified existing-name collision,
-choose another name with a small bounded retry count; on an unclassified open
-failure, abort rather than treating every error as a collision. Never retry
-with protection disabled. Do not open/close an unknown existing Host file.
-[Installed contract also documented by PTB](https://psychtoolbox.org/docs/Eyelink-OpenFile).
+Randomness only proposes candidates; it does not establish noncollision.
+`OpenFile(hostName, 1)` is NOT an overwrite guard. The current official PTB
+contract says the flag never worked reliably and newer versions reject it.
+M3 instead scans local `data/**/eyelink_recovery.mat` names and existing local
+EDFs, saves its own recovery mapping, requires explicit operator confirmation
+that the proposed Host name is unused, rechecks other local reservations, and
+only then calls `OpenFile(hostName)`. A known local collision, unreadable
+history, or refusal prevents the Host open. No separately verified Host-side
+existence API is available here; human confirmation is mandatory. A wrong
+operator confirmation can still permit an overwrite, so this is not an atomic
+Host guarantee. No existing Host EDF is opened to test this behavior.
+[Corrected PTB contract](https://psychtoolbox.org/docs/Eyelink-OpenFile).
 
 Keep the full MATLAB run ID as the directory name and in session metadata and
 EDF preamble/SESSION_START payload; the short EDF name is an alias. An explicit
@@ -494,8 +506,8 @@ After owned recording stops, require `CloseFile == 0`, then call
 do not delete the Host original or reopen it for recovery. A positive return
 and an existing local file whose `dir(...).bytes` matches that return are
 minimum success checks; 0/cancellation, negatives, or mismatched size remain
-failures. Record local SHA-256 for later local integrity checks, without
-claiming an independently compared Host checksum.
+failures. The implementation checks existence/byte count; it does not claim an
+independently compared Host checksum or content integrity from size alone.
 
 Use the installed converter only after acquisition on a copy/unique output
 directory, preserving the EDF. CExample `print_usage` documents `-p <path>`,
@@ -582,7 +594,8 @@ Later controlled checks, after TL approval and operator readiness:
 3. Inspect current sampling/eye/filter/INPUT settings, sound/display callbacks,
    calibration and validation quality, and any required approved setting change.
 4. Explicitly authorize a nonparticipant EDF test, since OpenFile creates Host
-   data and StartRecording changes state. Test protected-name collision refusal,
+   data and StartRecording changes state. Test filename collision/refusal with
+   mocks, never by opening an existing Host EDF. Test
    recording/health checks, safe abort, stop/close, transfer/retrieval and byte
    checks. No real participant or old Host EDF should be used as a collision test.
 5. Validate a controlled ten-trial M3 run against M2 invariants, hardware RTs,
@@ -594,20 +607,21 @@ Later controlled checks, after TL approval and operator readiness:
    external BioSemi/BIOPAC/EyeLink physical TTL INPUT validation remain separate.
    Do not infer clean TTL or common clocks from EDF Ethernet markers.
 
-Outstanding review choices: first-trial SYNC scope, live-versus-final Data Viewer
-RT policy, calibration/validation acceptance protocol, and any required Host
-filter changes. These are identified proposals/unknowns, not newly approved
-project decisions.
+The first-trial SYNC scope and snapshot/final-RT policy are approved and
+implemented. No numerical calibration thresholds were invented: operator
+quality acceptance is required. Required file sample/event tokens are read
+and checked; disabled/unverifiable settings stop without reconfiguration.
+Host configuration changes still need separate PO/operator approval.
 
-## K. Concise M3 implementation plan for TL approval
+## K. Approved M3 plan and implementation status
 
-1. Approve the proposed lifecycle, first-trial preamble scope, snapshot/final
-   reporting policy, and calibration protocol. Resolve any requirement for
-   final native Data Viewer RT variables before implementation starts.
+1. TL/PO approved continuous recording, first-trial preamble scope, operator
+   calibration acceptance and snapshot/final reporting; corrected EDF safety
+   requires operator-confirmed nonexistence, not an OpenFile flag.
 2. Add `numbered_circle_eyelink.m` as an independent executable, with a small
    local EyeLink owner/message/transfer implementation. Keep M2 and all shared
    serial/optical/response helpers unchanged; no new framework.
-3. Implement preflight/real-only initialization, protected short filename and
+3. Implement preflight/real-only initialization, operator-confirmed filename and
    recovery checkpoint, defaults/setup/validation, then tPAD open and exactly
    one recording starting before SYNC. Preserve every M2 timing/data invariant.
 4. Add the explicit trial/custom protocol, bounded ITI messaging, health checks
@@ -625,8 +639,9 @@ project decisions.
    qualification in J; update evidence/handoff/decisions, commit and push checks.
    Preserve unqualified visual/TTL status where measurements are still missing.
 
-Stop at this audit. No M3 executable, callback replacement, participant run,
-Host acquisition, time alignment, or hardware integration has been implemented.
+Steps 2-6 are implemented with offline regressions. Step 7 remains pending
+controlled physical acceptance. No participant run, Host acquisition, clock
+alignment or physical TTL INPUT configuration occurred during implementation.
 
 ## L. Evidence boundaries and actual audit checks
 
@@ -651,8 +666,9 @@ The initial restricted network-CIM query was denied by the filesystem/process
 sandbox; its read-only retry with permitted access succeeded. This was not a
 network configuration failure. No audit claim relies on the denied query.
 
-No MATLAB experiment tests, recording replay, or Code Analyzer were rerun for
-this documentation-only audit. Previously recorded M1/M2 automated tests and
+During the original documentation-only audit no MATLAB experiment tests,
+recording replay, or Code Analyzer were rerun. The subsequent M3 implementation
+runs these checks; actual results are recorded in PROJECT_HANDOFF. Previously recorded M1/M2 automated tests and
 PO physical evidence remain in PROJECT_HANDOFF; they are not EyeLink evidence.
 Repository checks for this delivery must confirm documentation-only changes,
 unchanged tracked MATLAB sources, clean diffs, no staged data/vendor material,
@@ -662,4 +678,5 @@ Precommit content checks passed: all required A-L sections are present; all 13
 literal absolute paths checked in this document exist; all 21 tracked MATLAB
 source/test files match the audited baseline byte for byte after normal Git
 line-ending normalization; only this report and PROJECT_HANDOFF are changed.
-All 39 local recording directories remain preserved. No M3 executable exists.
+All 39 pre-existing local recording directories remain preserved. These were
+original audit checks; M3 is a subsequent authorized implementation.

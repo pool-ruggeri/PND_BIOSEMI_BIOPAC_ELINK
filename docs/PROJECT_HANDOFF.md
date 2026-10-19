@@ -4,31 +4,95 @@ Delivery date: 2026-10-15; updated 2026-10-19 (Europe/Zurich). Status: M1/M2
 implemented and physical task tests reported successful; external TTL and full
 display qualification pending. Roles: PO = user; TL = ChatGPT; implementation = Codex.
 
-## M3 audit status (2026-10-19)
+## M3 implementation status (2026-10-19)
 
-[EyeLink M3 technical audit](EYELINK_M3_TECHNICAL_AUDIT.md) is complete against
-the synchronized `59da7a9` baseline. Verdict: **READY WITH CONSTRAINTS for
-TL-approved implementation**, with no M3 implementation performed.
+The TL/PO approved the [M3 audit](EYELINK_M3_TECHNICAL_AUDIT.md), with a critical
+EDF correction. `numbered_circle_eyelink.m` and the small shared EyeLink owner
+`m3_eyelink.m` are implemented. All pre-existing M1/M2 production files remain
+unchanged. EyeLink hardware integration is **not yet physically qualified**.
 
-Installed Developer's Kit/loaded core: 2.1.762.0; EyeLink MEX:
-3.0.19.656959774; PTB: 3.0.19; MATLAB R2023b Update 1. Metadata loading works
-after session-local saved-path/PTB startup setup, which resolves the observed
-GStreamer DLL-path dependency. No installed software or persistent settings
-were changed. Calibration callbacks and actual tracker behavior remain untested.
+The original audit incorrectly treated `OpenFile(..., 1)` as an overwrite
+guard. Current PTB documentation states that the flag never worked reliably
+and newer versions reject it. M3 does not pass it. It proposes an eight-character
+Host name, checks local recovery/EDF history, persists its run-ID mapping, asks
+the operator to inspect the Host and type `UNUSED <basename>`, rechecks local
+history, and only then calls OpenFile. Refusal/collision stops before creation.
+There is no verified atomic Host existence check: erroneous human confirmation
+can still permit overwrite. No destructive collision tests are permitted.
 
-The configured EyeLink Ethernet adapter (100.1.1.2/24) is disconnected; the
-current Host route would use Wi-Fi. Host connection, calibration, recording,
-EDF lifecycle, transfer, and Data Viewer import are NOT TESTED. No Host file
-was created or tracker initialization attempted. Physical TTL/input and full
-display timing qualification remain pending.
+Lifecycle: preflight MEX load and real-only initialization, tracker/version
+logging, read-only required file-filter checks, operator-confirmed EDF create,
+standard calibration/validation and explicit Y quality acceptance, then Mode 5
+tPAD open. One continuous EyeLink file-sample/event recording starts after the
+first TRIALID 1 and before the SYNC screen, with at least 100 ms polled preroll.
+The SYNC interval belongs to the prestimulus part of Data Viewer Trial 1;
+there are exactly ten intended behavioral/trial containers, with no duplicate
+TRIALID 1. Actual Data Viewer parsing still requires a physical EDF test.
 
-The audit proposes one continuous recording beginning before initial tPAD SYNC,
-with explicit Data Viewer boundaries and non-overwriting EDF recovery. TL review
-must settle first-trial SYNC scope, live snapshot versus final hardware-RT
-reporting, and calibration/Host-filter requirements. These recommendations do
-not authorize M3 or change established decisions. DECISIONS.md remains unchanged.
-All M1/M2 scripts/helpers remain unchanged; no `numbered_circle_eyelink.m`
-exists yet. Implementation awaits the TL's review of the audit evidence.
+M3 reuses the existing raw acquisition, classifier, four-button eligibility,
+fixed patch, timing windows, final hardware RTs and logging. Native messages
+carry original available PTB/tPAD values without clock transforms. Trial
+variables carry snapshot suffixes and ONLINE_SNAPSHOT stage; final MATLAB
+accuracy, RT and validity remain authoritative. No post-TRIAL_RESULT replacement
+is attempted. The delayed-OFF synthetic case leaves snapshot RT NA and later
+recovers a final 200 ms RT, demonstrating the intended distinction.
+
+Markers follow Flips. Configuration/file commands remain outside timed trials.
+Short snapshot/result bursts and health checks use the existing 500 ms ITI
+budget; serial is polled around native calls. Call durations, status/errors and
+explicit poll gaps are saved in `run.eyelink`. A >=250 ms measured interruption
+or an exhausted ITI marks an error, without widening optical/response gates.
+These guards detect overruns after return; they do not establish timing quality.
+SkipSyncTests=1 and its warning/restoration remain unchanged.
+
+The serial logs and final trial table are saved before EDF finalization. The
+EyeLink owner stops/offlines/closes/transfers/shuts down independently, once,
+without a live window dependency. Transfer requires positive bytes, file
+existence and an exact byte-count match. Existing destinations and partial files
+are retained. `eyelink_recovery.mat` checkpoints Host/local names, run ID,
+calibration, lifecycle, calls and failures. A transfer failure preserves tPAD
+results and marks overall ERROR; `task_status` retains the behavioral outcome.
+
+Validation on MATLAB R2023b Update 1, simulated PTB/IOPort/EyeLink:
+
+- 28 focused real-script M3 scenarios: normal/mixed responses, delayed optical
+  completion, MEX preflight failure, dummy/failed/foreign connection, filename
+  refusal/local collision, unreadable/disabled filters, calibration rejection
+  and failure, partial EDF create/start failure, mid-run recording failure,
+  interrupted/mismatched transfer, pre-existing destination, stop/close/message
+  failures, delayed call/poll-gap error, ESC, serial disconnect/COM contention,
+  display-open failure and unexpected closure. All passed.
+- Existing 11 offline groups (123 split positions), 10 optical groups, 6 M2
+  analysis groups, 30 M1 script scenarios plus geometry/handle-0 ownership,
+  and 7 M2 script scenarios passed. Synthetic mixed results remain 5 correct,
+  1 incorrect, 4 timeouts; these are not the PO's physical 9/1/0 run.
+- Three historical replays passed reconstruction regressions: 61/61 raw to
+  50 pulses +11 artifacts, 55/55 to 50 +5, 63/63 to 50 +13. Original first-flip
+  deadline failures in the first two recordings remain FAIL for full checks.
+- Code Analyzer: zero findings across all 24 source/test files. The new display
+  guard was corrected after Analyzer caught a nested onCleanup lifetime issue;
+  final M3 tests reject that cleanup warning and duplicate closures.
+- Local logs: `.local/m3/release_checks.log` records the complete passing
+  M1/M2/M3/replay batch and zero Analyzer findings.
+  `.local/m3/order_checks.log` additionally checks explicit lifecycle ordering
+  in all 28 M3 scenarios. Earlier diagnostic logs are retained separately.
+
+Installed stack remains SDK/loaded core 2.1.762.0, EyeLink MEX
+3.0.19.656959774, PTB 3.0.19, MATLAB R2023b Update 1. A non-acquisition
+IsConnected query before Initialize returned 0; no real initialization or
+Host file/recording operation was performed. No installed software, network,
+firewall or persistent settings changed. No sampling/eye/filter/INPUT settings
+were changed. Test EDFs are synthetic bytes inside ignored isolated fixtures.
+
+Launch: `numbered_circle_eyelink` after normal MATLAB/PTB setup and COM-port
+selection. The [README acceptance procedure](../README.md#first-controlled-laboratory-acceptance)
+requires the PO to confirm the real Host route, unused filename, calibration,
+continuous recording/SYNC, ten trials, real EDF gaze/events and Data Viewer
+segmentation, actual latency, abort and transfer recovery. The audit found the
+Host Ethernet link disconnected. No physical connection, calibration, EDF,
+gaze, Data Viewer import, external TTL or full display timing claim is made.
+Physical EyeLink INPUT configuration is excluded and belongs to the next
+hardware milestone. BBTK sensitivity investigation remains pending.
 
 ## Current laboratory evidence and remaining qualification
 
@@ -47,7 +111,8 @@ these physical measurements or rerun hardware during publication preparation.
   **10 valid optical ON/OFF cycles**. Hardware-based reaction times were verified
   by the PO. These are physical-run results, not the 5/1/4 synthetic fixture.
 - Remaining: external TTL verification with BioSemi, BIOPAC, and EyeLink; full
-  display timing qualification; EyeLink 1000 Plus software integration; and the
+  display timing qualification; physical EyeLink 1000 Plus integration
+  qualification (software is now implemented in M3); and the
   BBTK optical sensitivity investigation. No external-system integration or
   hardware-setting changes are included in publication.
 
@@ -169,7 +234,8 @@ validation. The later successful PO physical M2 run is recorded in the current
 evidence section above. The automated abort/held-button/error scenarios remain
 software checks unless separately measured in the laboratory. Sensitivity,
 physical TTL cleanliness, external trigger receipt, and scientifically qualified
-visual timing remain pending. EyeLink 1000 Plus integration remains future work.
+visual timing remain pending. EyeLink software is now implemented in M3;
+physical integration qualification remains future work.
 
 M2 local commit: latest touching `numbered_circle_task.m`:
 `git log -1 --format=%H -- numbered_circle_task.m`: `b47b0ea`.
@@ -415,7 +481,6 @@ The original local-only policy is superseded by the publication workflow above.
    optical onset/offset TTL transitions and their recording in each acquisition
    system. Record measurements/settings and PO qualification of the external TTL path.
 
-M2 is the four-choice task described above. EyeLink API integration remains
-deferred to a separately authorized milestone, reusing the tPAD reader.
-There is no implementation blocker; physical acceptance needs PO laboratory
-access and the existing PTB/hardware setup.
+M2 is the four-choice task described above. M3 now adds EyeLink software while
+reusing the unchanged tPAD reader. Physical EyeLink acceptance needs the PO,
+a controlled laboratory test, and the existing PTB/Host/hardware setup.

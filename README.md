@@ -1,4 +1,4 @@
-# MATLAB / Psychtoolbox / BBTK tPAD - M1 and M2
+# MATLAB / Psychtoolbox / BBTK tPAD - M1, M2 and M3 prototype
 
 Canonical repository: [pool-ruggeri/PND_BIOSEMI_BIOPAC_ELINK](https://github.com/pool-ruggeri/PND_BIOSEMI_BIOPAC_ELINK)
 (private).
@@ -6,6 +6,8 @@ Canonical repository: [pool-ruggeri/PND_BIOSEMI_BIOPAC_ELINK](https://github.com
 Three M1 reference scripts demonstrate optical timing, Button 1 responses,
 an initial physical synchronization press, and automatic tPAD TTL event marking.
 M2 adds an independent four-choice numbered-circle task using the same helpers.
+M3 adds `numbered_circle_eyelink.m` for continuous EyeLink EDF recording;
+its implementation is offline-tested and awaits physical EyeLink qualification.
 The PO reports successful M1/M2 physical task tests. External TTL and full
 display qualification remain pending. Hardware times come from received Mode 5 messages.
 
@@ -17,13 +19,15 @@ fixtures. See [project handoff](docs/PROJECT_HANDOFF.md) for evidence and limits
 
 Requirements: Windows 10, MATLAB R2023b, an existing working Psychtoolbox
 installation, and a BBTK tPAD USB virtual COM connection. No Python runtime is
-used. This project does not install software, change firmware, or control EyeLink.
+used. This project does not install software or change firmware. The M3
+executable additionally requires the existing EyeLink SDK and a real Host.
 
 ## Configure and run
 
 Open MATLAB in this repository. Ensure `which Screen` and `which IOPort` resolve
 to the existing Psychtoolbox installation. Set `comPort = 'COM5'` at the top of
-`opto_50_cycles.m`, `simple_task.m`, and `numbered_circle_task.m` to the tPAD port shown in Windows
+`opto_50_cycles.m`, `simple_task.m`, `numbered_circle_task.m`, and
+`numbered_circle_eyelink.m` to the tPAD port shown in Windows
 Device Manager. COM5 is a starting value from the optional Python reference,
 not a detected port. Close other applications using that port before acquisition.
 
@@ -134,7 +138,111 @@ M2 leaves all three M1 scripts and shared acquisition code unchanged. It sets
 and restores `SkipSyncTests=1`, with the same unqualified-display-timing warning.
 Automatic hardware TTL configuration/wiring remains untouched for all four
 buttons and Optical 1; physical mapping, optical artifacts, and external TTL
-receipt still require laboratory qualification. EyeLink integration is deferred.
+receipt still require laboratory qualification. EyeLink is added only in the
+separate M3 prototype below.
+
+## M3 continuous EyeLink prototype
+
+Run from the project folder, with the existing PTB/EyeLink installation on the
+MATLAB path and COM5 adjusted if necessary:
+
+```matlab
+numbered_circle_eyelink
+```
+
+M1/M2 executables and shared production helpers are unchanged. M3 reuses their
+ten trials, target order, four physical buttons, SYNC, fixed optical patch,
+serial acquisition/classifier, timing windows, and final hardware RT analysis.
+It adds one dedicated EyeLink owner, `m3_eyelink.m`, without a new framework.
+No dummy acquisition, online gaze-contingent loop, network reconfiguration,
+Host filter/rate/eye changes, clock conversion, or digital INPUT setup is included.
+
+Before the full-screen window opens, M3 verifies MEX loading and establishes a
+normal real connection. It reads `file_sample_data` and `file_event_filter`;
+GAZE samples and FIXATION/SACCADE/BLINK/MESSAGE events must be enabled. An
+unverifiable/disabled setting stops with the specific issue; changing it needs
+operator/PO approval outside the script. Existing `PsychStartup`, if available,
+performs only its normal process-local DLL-path setup. Missing PTB paths fail
+with an actionable preflight error; no persistent setup is installed.
+
+**Host EDF safety:** the old `OpenFile(..., 1)` flag never provided reliable
+non-overwrite protection and newer PTB rejects it. M3 calls `OpenFile` without
+that flag only after an explicit operator check. It proposes `E` plus seven
+hexadecimal characters, avoids local historical names/EDFs, and persists the
+short name, full run ID and destination in `data/<run>/eyelink_recovery.mat`.
+Inspect the Host file list, then type exactly `UNUSED <proposed_basename>` only
+if that name is unused. Anything else cancels without opening an EDF. Local
+history is checked again after confirmation. Randomness is not a collision
+proof; incorrect operator confirmation can still permit a Host overwrite.
+Do not continue while another experiment is active on the Host. No destructive
+Host collision test is performed. See the
+[corrected PTB contract](https://psychtoolbox.org/docs/Eyelink-OpenFile).
+
+Complete the standard EyeLink calibration AND validation on the Host. The
+last available result is saved and shown; press **Y** only if quality is
+acceptable, or ESC to cancel. No numerical quality threshold is invented.
+The script then opens tPAD, sends the first `TRIALID 1`, starts file-only
+EyeLink recording with samples/events, checks it, and polls tPAD during at
+least 100 ms preroll before the synchronization instruction is shown.
+Start any external recorders before pressing/releasing physical Button 1.
+Calibration flashes are outside the experimental interval and may themselves
+activate automatic optical TTL; they are not experimental stimulus events.
+
+One EyeLink recording covers SYNC and all ten trials. The SYNC interval is the
+prestimulus part of Data Viewer Trial 1; no eleventh trial or second TRIALID 1
+is created. Manufacturer commands are `DISPLAY_COORDS`, `TRIALID`,
+`!V TRIAL_VAR`, and `TRIAL_RESULT`. SESSION_START, TPAD_SYNC, STIMULUS_ONSET,
+STIMULUS_OFFSET, RESPONSE and SESSION_END are custom labels. Event messages
+carry original available tPAD/PTB values as payload; the EyeLink MSG timestamp
+remains a separate clock and is not physical TTL INPUT.
+
+Behavioral RT remains exclusively final valid tPAD optical ON to tPAD button
+press. Data Viewer variables such as `hardware_rt_ms_snapshot`,
+`actual_button_snapshot` and `outcome_snapshot` are explicitly provisional.
+`analysis_stage=ONLINE_SNAPSHOT` identifies them. Final accuracy/RT/validity
+stay in the existing MATLAB trial table; nothing retroactively updates a
+closed Data Viewer trial. Missing hardware anchors yield NA snapshots/NaN RT.
+
+Markers follow actual Flips; blocking configuration/file calls stay outside
+timed trials. Health checks and short variable bursts use the existing ITI
+budget, with serial polls between calls. M3 records native call durations and
+explicit poll gaps in `run.eyelink.calls` / `poll_gaps`. A gap of at least 250 ms
+or an exhausted ITI is an error; optical gates/windows are not expanded.
+This catches observed overruns after a call returns, not all possible timing
+failures. SkipSyncTests=1 and the scientific timing warning remain in force.
+
+M3 saves the normal tPAD outputs before stopping/closing/copying the EDF, then
+saves final lifecycle/transfer metadata in `session.mat` and the independent
+recovery MAT. Transfer requires a positive byte count and an existing local
+file of exactly that size. An existing local destination is refused; partial
+files and the Host original are retained. Stop/close/shutdown are attempted
+once with independent error handling and no display dependency. A failed
+transfer marks the overall run ERROR without deleting saved tPAD data;
+`run.task_status` separately retains the task outcome. No automatic reconnect,
+Host deletion, or overwrite retry occurs. EDF/ASC files are Git-ignored.
+
+### First controlled laboratory acceptance
+
+1. With the PO, connect/power the correct Host and verify its dedicated Ethernet
+   route; do not alter IP/firewall/Host settings automatically. Ensure the BBTK
+   configuration app has released COM5. Inspect existing Host files/settings.
+2. Run the command above; confirm an actually unused proposed name, calibrate,
+   validate and accept quality. Verify recording is active before physical SYNC.
+3. Press/release Button 1, then complete ten responses. Check physical button
+   mapping, ten stimuli, raw/classified optics, final hardware RTs, and logged
+   call durations/poll gaps/missed flips against M2. Do not force artifact counts.
+4. Verify `transfer_verified`, byte counts and the preserved Host original.
+   Convert a copy using installed EDF2ASC with consistency checking into a fresh
+   output directory. Confirm usable gaze/sample coverage and required events.
+   Import into Data Viewer: exactly ten trials, first-trial SYNC preamble,
+   onset/offset messages and correctly scoped snapshot variables.
+5. In separate supervised nonparticipant runs test ESC, disconnection and
+   transfer recovery. Exercise collision/refusal with mocks or a refused
+   confirmation, never by opening an existing Host EDF. Physical external TTL
+   INPUT qualification and full display timing remain separate milestones.
+
+Detailed evidence and limitations: [M3 audit](docs/EYELINK_M3_TECHNICAL_AUDIT.md)
+and [handoff](docs/PROJECT_HANDOFF.md).
 
 ## Serial, timing, and TTL
 
@@ -251,6 +359,7 @@ addpath('tests')
 run_offline_tests
 run_optical_filter_tests
 run_numbered_circle_tests
+run_eyelink_tests % Focused M3; also included in the full script suite below.
 run_script_smoke_tests
 run_lab_replay
 ```

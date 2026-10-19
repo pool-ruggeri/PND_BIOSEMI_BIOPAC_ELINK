@@ -5,6 +5,8 @@ data/
 *.bin
 *.csv
 *.log
+*.edf
+*.asc
 
 # MATLAB caches, recovery files, and generated code.
 *.asv
