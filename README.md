@@ -1,5 +1,8 @@
 # MATLAB / Psychtoolbox / BBTK tPAD - M1 and M2
 
+Canonical repository: [pool-ruggeri/PND_BIOSEMI_BIOPAC_ELINK](https://github.com/pool-ruggeri/PND_BIOSEMI_BIOPAC_ELINK)
+(private).
+
 Three M1 reference scripts demonstrate optical timing, Button 1 responses,
 an initial physical synchronization press, and automatic tPAD TTL event marking.
 M2 adds an independent four-choice numbered-circle task using the same helpers.

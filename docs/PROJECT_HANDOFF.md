@@ -27,16 +27,26 @@ these physical measurements or rerun hardware during publication preparation.
 
 ## GitHub publication and future workflow
 
-On 2026-10-19 the PO explicitly lifted the local-only restriction and authorized
-a private GitHub repository named `PND_BIOSEMI_BIOPAC_ELINK`, using remote
-`origin`. Publication must preserve the existing M1/M2 history and `m1` tag,
-without force-push, history rewriting, or an independent GitHub initial commit.
-Repository ownership/authentication and remote synchronization must be verified
-before publication is reported complete.
+On 2026-10-19 the PO explicitly lifted the local-only restriction, authorized
+private publication, and selected `pool-ruggeri` as owner. The repository is
+[pool-ruggeri/PND_BIOSEMI_BIOPAC_ELINK](https://github.com/pool-ruggeri/PND_BIOSEMI_BIOPAC_ELINK)
+with private visibility verified through GitHub. Remote `origin` uses
+`https://github.com/pool-ruggeri/PND_BIOSEMI_BIOPAC_ELINK.git`.
 
-Publication preparation is complete locally. Initial repository creation/push
-is pending verification of the intended owner and matching Git credentials;
-no `origin` has been configured at this preparation stage.
+The complete existing M1/M2 history was pushed without rewriting, force-push,
+or an independent GitHub initial commit. `main` tracks `origin/main` and is the
+default GitHub branch. The published `m1` tag retains
+`cbad781153ce7700d2e3aa413cee57fa8b99b026`.
+
+Publication checks verified matching local/remote main commits, every tracked
+file's Git blob identity, complete commit history, and the tag. All 26 tracked
+files, including 21 MATLAB source/test files, are included. Review of all
+reachable historical file paths and contents found no acquisition files or
+likely secrets; ignored-data and clean-working-tree checks passed. All 39
+local recording directories were preserved. MATLAB sources are unchanged
+from `b47b0ea`; publication changes only documentation and `.gitignore`, so
+MATLAB suites and Code Analyzer were not rerun for this milestone. Their
+previous results and the separate PO physical evidence are recorded below.
 
 GitHub is the canonical project repository from this publication milestone.
 For each accepted implementation milestone: update this handoff and the decision

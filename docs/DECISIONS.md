@@ -149,7 +149,9 @@ No further PO architectural decision is required to implement this milestone.
 
 - PO explicitly authorizes private GitHub publication and synchronization;
   the previous prohibition on configuring a remote or pushing is lifted.
-  Preferred repository name is `PND_BIOSEMI_BIOPAC_ELINK`, remote `origin`.
+  PO selected owner `pool-ruggeri`. The private canonical repository is
+  [pool-ruggeri/PND_BIOSEMI_BIOPAC_ELINK](https://github.com/pool-ruggeri/PND_BIOSEMI_BIOPAC_ELINK),
+  remote `origin`, with `main` tracking `origin/main` and tag `m1` published.
   Verify authenticated ownership, private visibility, matching refs, and clean
   working tree. Preserve the complete M1/M2 history and existing `m1` tag.
   Do not force-push, rewrite history, or overwrite an unrelated repository.
