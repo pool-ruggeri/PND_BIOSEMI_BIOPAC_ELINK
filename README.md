@@ -3,8 +3,14 @@
 Three M1 reference scripts demonstrate optical timing, Button 1 responses,
 an initial physical synchronization press, and automatic tPAD TTL event marking.
 M2 adds an independent four-choice numbered-circle task using the same helpers.
-Hardware acceptance is pending. All reported hardware times must come from
-received Mode 5 messages.
+The PO reports successful M1/M2 physical task tests. External TTL and full
+display qualification remain pending. Hardware times come from received Mode 5 messages.
+
+PO report (2026-10-19): M1 recovered 50 valid optical ON/OFF cycles with short
+artifacts classified. The M2 physical ten-trial run recorded 9 correct,
+1 incorrect, 0 timeouts, initial SYNC, 10 valid optical ON/OFF cycles, and
+verified hardware RTs. These are reported lab results, distinct from automated
+fixtures. See [project handoff](docs/PROJECT_HANDOFF.md) for evidence and limits.
 
 Requirements: Windows 10, MATLAB R2023b, an existing working Psychtoolbox
 installation, and a BBTK tPAD USB virtual COM connection. No Python runtime is

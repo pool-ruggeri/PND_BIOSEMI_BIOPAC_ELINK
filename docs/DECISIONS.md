@@ -1,6 +1,6 @@
 # M1 decisions
 
-- PO scope: local Git only; three independently executable MATLAB scripts;
+- Original M1 PO scope (local-only rule superseded on 2026-10-19): three independently executable MATLAB scripts;
   IOPort, Mode 5, 115200 baud; no installations, firmware changes, cabling
   changes, remote repository, software TTL, or EyeLink control.
 - Plain functions and small script-local routines implement acquisition and
@@ -141,5 +141,32 @@ No further PO architectural decision is required to implement this milestone.
 - Retain SkipSyncTests=1 with restoration and warnings. No software TTL, mode,
   wiring, sensitivity, firmware, or EyeLink API changes. Physical qualification
   of B1..B4/optical TTL outputs and recording remains the PO's laboratory work.
-- Local `main` commit only, no remote or push. M2 reuses the existing simulated
+- Original M2 delivery used a local `main` commit only; publication was
+  authorized on 2026-10-19. M2 reuses the existing simulated
   PTB/IOPort fixture and adds small focused hardware-eligibility tests.
+
+## GitHub publication and reported laboratory acceptance (2026-10-19)
+
+- PO explicitly authorizes private GitHub publication and synchronization;
+  the previous prohibition on configuring a remote or pushing is lifted.
+  Preferred repository name is `PND_BIOSEMI_BIOPAC_ELINK`, remote `origin`.
+  Verify authenticated ownership, private visibility, matching refs, and clean
+  working tree. Preserve the complete M1/M2 history and existing `m1` tag.
+  Do not force-push, rewrite history, or overwrite an unrelated repository.
+- GitHub is the canonical repository from this milestone. Accepted changes
+  require handoff/decision updates, successful checks, local commit, branch
+  push, and verification of remote synchronization. Keep the existing workflow;
+  no new branches policy, CI, Actions, or administrative framework is required.
+- Publication includes code, tests, documentation, and necessary configuration.
+  Participant data, raw laboratory recordings, calibration/workspace MAT files,
+  generated caches/output, and credentials remain excluded. Preserve all local
+  recordings; publishing experimental data requires separate explicit approval.
+- PO-reported physical evidence: M1's 50-cycle optical test recovered 50 valid
+  ON/OFF cycles with short artifacts classified. M2's physical ten-trial run
+  completed with 9 correct, 1 incorrect, 0 timeouts, an initial SYNC event,
+  10 valid optical ON/OFF cycles, and verified hardware RTs. These reported
+  laboratory results are distinct from synthetic regression results.
+- Remaining qualification: external TTL recording with BioSemi, BIOPAC, and
+  EyeLink; full display timing; EyeLink 1000 Plus software integration; and
+  the BBTK optical sensitivity investigation. Publication adds no hardware,
+  timing, serial, trigger, or integration changes.

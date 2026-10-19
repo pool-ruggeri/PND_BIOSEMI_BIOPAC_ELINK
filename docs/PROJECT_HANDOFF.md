@@ -1,7 +1,54 @@
 # M1 / M2 project handoff
 
-Delivery date: 2026-10-15; updated 2026-10-16 (Europe/Zurich). Status: software implemented; laboratory
-acceptance pending. Roles: PO = user; TL = ChatGPT; implementation = Codex.
+Delivery date: 2026-10-15; updated 2026-10-19 (Europe/Zurich). Status: M1/M2
+implemented and physical task tests reported successful; external TTL and full
+display qualification pending. Roles: PO = user; TL = ChatGPT; implementation = Codex.
+
+## Current laboratory evidence and remaining qualification
+
+The following is Product Owner laboratory evidence reported on 2026-10-19,
+separate from the automated tests recorded below. The agent did not conduct
+these physical measurements or rerun hardware during publication preparation.
+
+- M1: optical calibration utility implemented; the 50-cycle optical test was
+  physically validated, with 50 valid optical ON/OFF cycles recovered. Short
+  optical artifacts were identified and classified; original hardware records
+  remain available locally. Successful reconstruction does not establish clean
+  physical TTL output.
+- M2: `numbered_circle_task.m` supports four physical buttons through Mode 5 XiD
+  serial and records the initial synchronization event. The physical ten-trial
+  test completed successfully: **9 correct, 1 incorrect, 0 timeouts**, with
+  **10 valid optical ON/OFF cycles**. Hardware-based reaction times were verified
+  by the PO. These are physical-run results, not the 5/1/4 synthetic fixture.
+- Remaining: external TTL verification with BioSemi, BIOPAC, and EyeLink; full
+  display timing qualification; EyeLink 1000 Plus software integration; and the
+  BBTK optical sensitivity investigation. No external-system integration or
+  hardware-setting changes are included in publication.
+
+## GitHub publication and future workflow
+
+On 2026-10-19 the PO explicitly lifted the local-only restriction and authorized
+a private GitHub repository named `PND_BIOSEMI_BIOPAC_ELINK`, using remote
+`origin`. Publication must preserve the existing M1/M2 history and `m1` tag,
+without force-push, history rewriting, or an independent GitHub initial commit.
+Repository ownership/authentication and remote synchronization must be verified
+before publication is reported complete.
+
+Publication preparation is complete locally. Initial repository creation/push
+is pending verification of the intended owner and matching Git credentials;
+no `origin` has been configured at this preparation stage.
+
+GitHub is the canonical project repository from this publication milestone.
+For each accepted implementation milestone: update this handoff and the decision
+log, run appropriate checks, commit locally, push the relevant branch, and
+verify synchronization. Use the existing main-branch workflow; no new branching
+strategy, CI pipeline, or administrative framework is introduced.
+
+Publish source, helpers, automated tests, documentation, and necessary project
+configuration only. `.gitignore` excludes acquisition directories, raw/derived
+data formats, calibration/workspace MAT files, logs, MATLAB caches, temporary
+files, and credential files. Experimental recordings remain local and must not
+be added without explicit publication approval. No local recordings were deleted.
 
 ## Architecture and scope
 
@@ -81,15 +128,16 @@ M2 software validation on MATLAB R2023b Update 1:
 - Code Analyzer: zero findings across 21 source/test files. Logs:
   `.local/m2_analysis_checks.log`, `.local/m2_script_checks.log`.
 
-No new physical GUI, tPAD, TTL, or external-recorder validation was performed.
-The PO reports the M1 reference task physically tested; M2 needs a laboratory
-run with B1..B4 including wrong/missing responses, held-button/release behavior,
-optical chatter, an ESC abort, and all automatic TTL channels recorded with the
-existing approved setup. Sensitivity, physical TTL cleanliness, external trigger
-receipt, and scientifically qualified visual timing remain pending. EyeLink is deferred.
+The implementation agent performed no physical GUI, tPAD, TTL, or external-recorder
+validation. The later successful PO physical M2 run is recorded in the current
+evidence section above. The automated abort/held-button/error scenarios remain
+software checks unless separately measured in the laboratory. Sensitivity,
+physical TTL cleanliness, external trigger receipt, and scientifically qualified
+visual timing remain pending. EyeLink 1000 Plus integration remains future work.
 
 M2 local commit: latest touching `numbered_circle_task.m`:
-`git log -1 --format=%H -- numbered_circle_task.m`. No remote or push.
+`git log -1 --format=%H -- numbered_circle_task.m`: `b47b0ea`.
+Its original local-only restriction was superseded by the 2026-10-19 publication authorization.
 
 ## M1 retained evidence
 
@@ -300,9 +348,10 @@ Sync-preference hotfix: `39a393e`. The fixed-patch hotfix is the latest commit
 touching `m1_patch.m`: `e092baf`. Initial optical/cleanup hotfix: `4bc74a3`.
 The sequence-classification correction is the latest commit touching
 `m1_classify_optical.m`: `git log -1 --format=%H -- m1_classify_optical.m`.
-No remote is configured and no push is part of this work.
+M2 implementation commit: `b47b0ea4e1f5df5dcc142824fdd5adedbff88371`.
+The original local-only policy is superseded by the publication workflow above.
 
-## Exact next steps for PO acceptance
+## Continuing laboratory qualification
 
 1. Make the existing Psychtoolbox installation available on the R2023b path;
    check `which Screen` and `which IOPort`. Set the actual COM port in both
@@ -328,7 +377,7 @@ No remote is configured and no push is part of this work.
    press/release pairing. Repeat with an ESC abort and inspect partial outputs.
 5. With the existing approved wiring, physically verify automatic Button 1 and
    optical onset/offset TTL transitions and their recording in each acquisition
-   system. Record measurements/settings and PO acceptance before M2.
+   system. Record measurements/settings and PO qualification of the external TTL path.
 
 M2 is the four-choice task described above. EyeLink API integration remains
 deferred to a separately authorized milestone, reusing the tPAD reader.

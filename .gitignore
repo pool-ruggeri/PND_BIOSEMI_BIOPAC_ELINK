@@ -1,5 +1,28 @@
+# Acquisitions, participant data, calibration, and local verification output.
 .local/
 data/
-opto_patch.mat
+*.mat
+*.bin
+*.csv
+*.log
+
+# MATLAB caches, recovery files, and generated code.
 *.asv
-matlab_environment_check.log
+*.m~
+*.slxc
+slprj/
+codegen/
+
+# Machine-local temporary files and credentials.
+*.tmp
+*.temp
+Thumbs.db
+Desktop.ini
+.env
+.env.*
+.aws/
+.ssh/
+*.pem
+*.key
+*.pfx
+*.p12
