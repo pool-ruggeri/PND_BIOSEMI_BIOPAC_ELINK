@@ -1,8 +1,34 @@
-# M1 / M2 project handoff
+# M1 / M2 project handoff and M3 audit
 
 Delivery date: 2026-10-15; updated 2026-10-19 (Europe/Zurich). Status: M1/M2
 implemented and physical task tests reported successful; external TTL and full
 display qualification pending. Roles: PO = user; TL = ChatGPT; implementation = Codex.
+
+## M3 audit status (2026-10-19)
+
+[EyeLink M3 technical audit](EYELINK_M3_TECHNICAL_AUDIT.md) is complete against
+the synchronized `59da7a9` baseline. Verdict: **READY WITH CONSTRAINTS for
+TL-approved implementation**, with no M3 implementation performed.
+
+Installed Developer's Kit/loaded core: 2.1.762.0; EyeLink MEX:
+3.0.19.656959774; PTB: 3.0.19; MATLAB R2023b Update 1. Metadata loading works
+after session-local saved-path/PTB startup setup, which resolves the observed
+GStreamer DLL-path dependency. No installed software or persistent settings
+were changed. Calibration callbacks and actual tracker behavior remain untested.
+
+The configured EyeLink Ethernet adapter (100.1.1.2/24) is disconnected; the
+current Host route would use Wi-Fi. Host connection, calibration, recording,
+EDF lifecycle, transfer, and Data Viewer import are NOT TESTED. No Host file
+was created or tracker initialization attempted. Physical TTL/input and full
+display timing qualification remain pending.
+
+The audit proposes one continuous recording beginning before initial tPAD SYNC,
+with explicit Data Viewer boundaries and non-overwriting EDF recovery. TL review
+must settle first-trial SYNC scope, live snapshot versus final hardware-RT
+reporting, and calibration/Host-filter requirements. These recommendations do
+not authorize M3 or change established decisions. DECISIONS.md remains unchanged.
+All M1/M2 scripts/helpers remain unchanged; no `numbered_circle_eyelink.m`
+exists yet. Implementation awaits the TL's review of the audit evidence.
 
 ## Current laboratory evidence and remaining qualification
 
