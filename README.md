@@ -1,4 +1,4 @@
-# MATLAB / Psychtoolbox / BBTK tPAD - M1, M2 and M3 prototype
+# MATLAB / Psychtoolbox / BBTK tPAD - M1 through M4
 
 Canonical repository: [pool-ruggeri/PND_BIOSEMI_BIOPAC_ELINK](https://github.com/pool-ruggeri/PND_BIOSEMI_BIOPAC_ELINK)
 (private).
@@ -7,9 +7,10 @@ Three M1 reference scripts demonstrate optical timing, Button 1 responses,
 an initial physical synchronization press, and automatic tPAD TTL event marking.
 M2 adds an independent four-choice numbered-circle task using the same helpers.
 M3 adds `numbered_circle_eyelink.m` for continuous EyeLink EDF recording;
-its implementation is offline-tested and awaits physical EyeLink qualification.
-The PO reports successful M1/M2 physical task tests. External TTL and full
-display qualification remain pending. Hardware times come from received Mode 5 messages.
+the PO reports a successful ten-trial session and M4 EDF/physical INPUT evidence
+on 2026-10-20. Gaze quality, Data Viewer acceptance, display synchronization,
+electrical fan-out and long-duration stability remain unqualified. Hardware
+times come from received Mode 5 messages.
 
 PO report (2026-10-19): M1 recovered 50 valid optical ON/OFF cycles with short
 artifacts classified. The M2 physical ten-trial run recorded 9 correct,
@@ -137,9 +138,45 @@ availability, SYNC, RT means, and completion/abort/error status.
 M2 leaves all three M1 scripts and shared acquisition code unchanged. It sets
 and restores `SkipSyncTests=1`, with the same unqualified-display-timing warning.
 Automatic hardware TTL configuration/wiring remains untouched for all four
-buttons and Optical 1; physical mapping, optical artifacts, and external TTL
-receipt still require laboratory qualification. EyeLink is added only in the
-separate M3 prototype below.
+buttons and Optical 1. The PO's observed EyeLink INPUT mapping is recorded below;
+optical artifact cleanliness and BioSemi/BIOPAC receipt remain pending. EyeLink
+is added only in the separate M3 executable below.
+
+## M3/M4 laboratory evidence reported by the PO (2026-10-20)
+
+These are **PO-supplied physical laboratory results**, distinct from automated
+mock tests. This documentation update did not repeat hardware acquisition or
+independently convert the EDF.
+
+- **M3:** successful ten-trial EyeLink session, EDF creation and verified
+  transfer, with real gaze samples and all required trial markers observed.
+- **M4:** `E9B2C08B.edf` converted successfully: **413 events, 23,670 samples,
+  one recording block**. Physical EyeLink INPUT evidence was observed for
+  Optical 1 and B1-B4.
+- All **10 optical ON/OFF pairs**, all **10 response press/release pairs**,
+  and the separate initial **SYNC press/release pair** were observed.
+- Hardware RT comparison: **8/10 exact matches**, the other **2 within 1 ms**;
+  reported mean **221.2 ms**.
+
+Observed mapping for the installed EyeLink INPUT path:
+
+| Event | INPUT bit mask | EyeLink button |
+| --- | --- | --- |
+| Optical 1 (Opto) | `0x04` | 3 |
+| B1 | `0x20` | 6 |
+| B2 | `0x40` | 7 |
+| B3 | `0x08` | 4 |
+| B4 | `0x10` | 5 |
+
+Observed idle register: **`0x80`**. These masks and EyeLink button labels describe
+the observed INPUT path; tPAD connector pin/output numbering is documented
+separately below.
+
+Qualification remains limited to the reported session and path. **Gaze quality,
+Data Viewer acceptance, display synchronization, electrical fan-out and
+long-duration stability are not yet qualified.** Raw EDF/ASC, tPAD logs and other
+recordings remain local and Git-ignored. No MATLAB source or hardware settings
+are changed by this documentation update.
 
 ## M3 continuous EyeLink prototype
 
@@ -237,7 +274,10 @@ transfer marks the overall run ERROR without deleting saved tPAD data;
 `run.task_status` separately retains the task outcome. No automatic reconnect,
 Host deletion, or overwrite retry occurs. EDF/ASC files are Git-ignored.
 
-### First controlled laboratory acceptance
+### Controlled laboratory acceptance procedure
+
+The PO-reported session/EDF/INPUT evidence above has been obtained. Continue to
+use these checks for later runs and the remaining qualifications.
 
 1. With the PO, connect/power the correct Host and verify its dedicated Ethernet
    route; do not alter IP/firewall/Host settings automatically. Ensure the BBTK
@@ -255,8 +295,9 @@ Host deletion, or overwrite retry occurs. EDF/ASC files are Git-ignored.
    onset/offset messages and correctly scoped snapshot variables.
 5. In separate supervised nonparticipant runs test ESC, disconnection and
    transfer recovery. Exercise collision/refusal with mocks or a refused
-   confirmation, never by opening an existing Host EDF. Physical external TTL
-   INPUT qualification and full display timing remain separate milestones.
+   confirmation, never by opening an existing Host EDF. Extend the observed
+   EyeLink INPUT evidence to electrical fan-out and long-duration stability;
+   BioSemi/BIOPAC receipt and full display timing remain separate qualifications.
 
 Detailed evidence and limitations: [M3 audit](docs/EYELINK_M3_TECHNICAL_AUDIT.md)
 and [handoff](docs/PROJECT_HANDOFF.md).
@@ -335,8 +376,9 @@ pin 1 / TTL Out 1; Optical Sensor 1 uses pin 5 / TTL Out 11; pin 8 is ground.
 Activation raises the output and deactivation lowers it. Existing smoothing
 settings can affect physical trailing edges. The code leaves those settings
 unchanged. Record and verify the installed settings with the BBTK app during
-laboratory acceptance. No cabling changes are part of M1. Receipt by BioSemi,
-BIOPAC, and EyeLink has **not** been physically verified.
+laboratory acceptance. No cabling changes are part of M1. The PO supplied physical
+EyeLink INPUT evidence on 2026-10-20 as recorded above; receipt by BioSemi and
+BIOPAC remains unqualified.
 Software exclusions cannot remove TTL pulses already emitted by the tPAD;
 external recorders may retain those short pulses. Sensitivity/threshold behavior
 is suspected, not established. The PO is consulting BBTK; physical optical/TTL

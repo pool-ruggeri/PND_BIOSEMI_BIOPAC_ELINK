@@ -1,12 +1,57 @@
-# M1 / M2 project handoff and M3 audit
+# M1 / M2 / M3 / M4 project handoff
 
 Delivery date: 2026-10-15; updated 2026-10-20 (Europe/Zurich). Status: M1/M2
-implemented and physical task tests reported successful; external TTL and full
-display qualification pending. Roles: PO = user; TL = ChatGPT; implementation = Codex.
+physical task tests and M3/M4 recording/INPUT evidence reported by the PO;
+gaze quality, Data Viewer acceptance, display synchronization, electrical fan-out
+and long-duration stability remain unqualified. Roles: PO = user;
+TL = ChatGPT; implementation = Codex.
+
+## Current M3/M4 physical laboratory evidence (2026-10-20)
+
+The following results were supplied by the PO from physical laboratory
+qualification on 2026-10-20. They are separate from the automated fixtures and
+regression results below. The implementation agent did not repeat acquisition,
+EDF conversion or hardware qualification during this documentation update.
+
+- **M3:** a successful **10-trial EyeLink session**, including EDF creation and
+  verified transfer, real gaze samples and all required trial markers.
+- **M4:** **`E9B2C08B.edf` converted successfully**, with **413 events,
+  23,670 samples and one recording block**.
+- Physical **EyeLink INPUT evidence for Optical 1 and B1-B4**: all **10 optical
+  ON/OFF pairs**, all **10 response press/release pairs**, plus the separate
+  initial **SYNC press/release pair** were observed.
+- Hardware RT comparison: **8/10 exact matches**; the remaining **2 within 1 ms**.
+  Reported mean RT: **221.2 ms**.
+
+Observed installed-path mapping:
+
+| Event | EyeLink INPUT bit mask | EyeLink button |
+| --- | --- | --- |
+| Optical 1 (Opto) | `0x04` | 3 |
+| B1 | `0x20` | 6 |
+| B2 | `0x40` | 7 |
+| B3 | `0x08` | 4 |
+| B4 | `0x10` | 5 |
+
+Observed idle register: **`0x80`**. These are EyeLink INPUT masks/button labels
+for the observed path, separate from tPAD connector pin/output numbering.
+
+**Remaining limits:** gaze quality, Data Viewer acceptance, display
+synchronization, electrical fan-out and long-duration stability are **not yet
+qualified**. BioSemi/BIOPAC receipt and the existing BBTK optical sensitivity
+investigation remain separate outstanding work.
+
+Raw recordings and derived EDF/ASC/log files stay local and excluded from Git
+under the existing ignore rules. This synchronization changes only README,
+handoff and decisions; MATLAB source and hardware settings remain unchanged.
+The earlier 47-scenario M3 regression and zero Code Analyzer findings remain
+historical automated results; MATLAB tests/Analyzer are not rerun for this
+documentation-only update. Documentation checks verified consistent mapping and
+result figures, unchanged MATLAB/data files and existing raw-data exclusions.
 
 ## M3 Host reply trailing-comma correction (2026-10-20)
 
-The PO's next EYELINK CL 5.50 test returned these status-0 replies:
+The PO's pre-correction EYELINK CL 5.50 test returned these status-0 replies:
 
 ```text
 file_sample_data: AREA,BUTTON,GAZE,GAZERES,LEFT,RIGHT,STATUS,HMARKER,HMARKER,
@@ -27,7 +72,8 @@ whitespace, malformed/unknown fields and a trailing-comma list missing GAZE.
 Existing empty-reply retries, missing-field stops and query-error behavior stay
 in place. The only production change is the parser expression/comment; no Host
 settings, SDK, EDF lifecycle, calibration, tPAD or timing changes were made.
-Real EDF/gaze/event and timing qualification still require physical validation.
+At this software-correction delivery, real EDF/gaze/event and timing validation
+remained pending; the later PO evidence and remaining limits are recorded above.
 
 Focused MATLAB R2023b validation: all 47 isolated M3 real-script scenarios
 passed; Code Analyzer reported zero findings across 24 MATLAB source/test files.
@@ -43,7 +89,7 @@ full-check FAIL results. Full-suite results and zero Analyzer findings are in
 
 ## M3 ReadFromTracker hotfix (2026-10-20)
 
-**Reported physical evidence:** the PO's EyeLink 1000 Plus test connected to
+**Earlier reported physical evidence:** the PO's EyeLink 1000 Plus test connected to
 the Host and initialized successfully, reporting **EYELINK CL 5.50**.
 `ReadFromTracker('file_sample_data')` returned status 0 with an empty/unusable
 reply; preflight stopped before EDF creation. This establishes connection and
@@ -108,7 +154,8 @@ PTB/EyeLink/tPAD, no physical acquisition):
 The TL/PO approved the [M3 audit](EYELINK_M3_TECHNICAL_AUDIT.md), with a critical
 EDF correction. `numbered_circle_eyelink.m` and the small shared EyeLink owner
 `m3_eyelink.m` are implemented. All pre-existing M1/M2 production files remain
-unchanged. EyeLink hardware integration is **not yet physically qualified**.
+unchanged. At this delivery, EyeLink hardware integration had not been physically
+qualified; subsequent PO evidence is recorded above.
 
 The original audit incorrectly treated `OpenFile(..., 1)` as an overwrite
 guard. Current PTB documentation states that the flag never worked reliably
@@ -184,18 +231,18 @@ firewall or persistent settings changed. No sampling/eye/filter/INPUT settings
 were changed. Test EDFs are synthetic bytes inside ignored isolated fixtures.
 
 Launch: `numbered_circle_eyelink` after normal MATLAB/PTB setup and COM-port
-selection. The [README acceptance procedure](../README.md#first-controlled-laboratory-acceptance)
+selection. The [README acceptance procedure](../README.md#controlled-laboratory-acceptance-procedure)
 requires the PO to confirm the real Host route, unused filename, calibration,
 continuous recording/SYNC, ten trials, real EDF gaze/events and Data Viewer
 segmentation, actual latency, abort and transfer recovery. The audit found the
-Host Ethernet link disconnected at the audit. The later PO-reported physical
-connection/initialization result is recorded in the hotfix section above;
-calibration, EDF, gaze, Data Viewer import, external TTL and full display timing
-remain unqualified.
-Physical EyeLink INPUT configuration is excluded and belongs to the next
-hardware milestone. BBTK sensitivity investigation remains pending.
+Host Ethernet link disconnected at the audit. The later PO-reported M3/M4
+session, real EDF contents, INPUT receipt and RT comparison are recorded above.
+Gaze quality, Data Viewer acceptance, display synchronization, electrical fan-out
+and long-duration stability remain unqualified. Physical INPUT configuration
+was outside this software delivery; this documentation update changes no
+hardware settings. BBTK sensitivity investigation remains pending.
 
-## Current laboratory evidence and remaining qualification
+## M1/M2 laboratory evidence reported on 2026-10-19
 
 The following is Product Owner laboratory evidence reported on 2026-10-19,
 separate from the automated tests recorded below. The agent did not conduct
@@ -211,11 +258,10 @@ these physical measurements or rerun hardware during publication preparation.
   test completed successfully: **9 correct, 1 incorrect, 0 timeouts**, with
   **10 valid optical ON/OFF cycles**. Hardware-based reaction times were verified
   by the PO. These are physical-run results, not the 5/1/4 synthetic fixture.
-- Remaining: external TTL verification with BioSemi, BIOPAC, and EyeLink; full
-  display timing qualification; physical EyeLink 1000 Plus integration
-  qualification (software is now implemented in M3); and the
-  BBTK optical sensitivity investigation. No external-system integration or
-  hardware-setting changes are included in publication.
+- The subsequent M3/M4 EyeLink session and physical INPUT evidence are recorded
+  above. BioSemi/BIOPAC external TTL receipt, full display timing and the BBTK
+  optical sensitivity investigation remain pending. No hardware-setting changes
+  are included in this documentation synchronization.
 
 ## GitHub publication and future workflow
 
@@ -335,8 +381,8 @@ validation. The later successful PO physical M2 run is recorded in the current
 evidence section above. The automated abort/held-button/error scenarios remain
 software checks unless separately measured in the laboratory. Sensitivity,
 physical TTL cleanliness, external trigger receipt, and scientifically qualified
-visual timing remain pending. EyeLink software is now implemented in M3;
-physical integration qualification remains future work.
+visual timing remain pending. Later M3/M4 EyeLink session/INPUT evidence and its
+remaining qualification limits are recorded above.
 
 M2 local commit: latest touching `numbered_circle_task.m`:
 `git log -1 --format=%H -- numbered_circle_task.m`: `b47b0ea`.
@@ -578,10 +624,13 @@ The original local-only policy is superseded by the publication workflow above.
    Button 1 once to synchronize, and perform ten trials. Confirm the separate
    sync event, optical edges, hardware RTs, missing/premature responses, and
    press/release pairing. Repeat with an ESC abort and inspect partial outputs.
-5. With the existing approved wiring, physically verify automatic Button 1 and
-   optical onset/offset TTL transitions and their recording in each acquisition
-   system. Record measurements/settings and PO qualification of the external TTL path.
+5. With the existing approved wiring, extend the observed EyeLink Optical 1 and
+   B1-B4 INPUT evidence to BioSemi/BIOPAC receipt, electrical fan-out and
+   long-duration stability. Record measurements/settings and PO qualification
+   of each external TTL path.
 
-M2 is the four-choice task described above. M3 now adds EyeLink software while
-reusing the unchanged tPAD reader. Physical EyeLink acceptance needs the PO,
-a controlled laboratory test, and the existing PTB/Host/hardware setup.
+M2 is the four-choice task described above. M3 adds EyeLink software while
+reusing the unchanged tPAD reader. The PO's 2026-10-20 M3/M4 physical session,
+EDF, INPUT and RT evidence is recorded above; continue qualification of gaze
+quality, Data Viewer acceptance, display synchronization, electrical fan-out
+and long-duration stability.

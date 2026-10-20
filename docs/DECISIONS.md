@@ -247,3 +247,38 @@ No further PO architectural decision is required to implement this milestone.
   validation must establish actual gaze samples and required events before
   qualification. Preserve M1/M2, calibration, serial acquisition, hardware
   timestamps, TTL, patch, SkipSyncTests and ten-trial logic.
+
+## M3/M4 PO-supplied physical qualification evidence (2026-10-20)
+
+- Record the PO's physical laboratory results separately from automated tests.
+  M3 completed a successful **10-trial EyeLink session**, with EDF creation and
+  verified transfer, real gaze samples and all required trial markers.
+- M4: **`E9B2C08B.edf` converted successfully**, with **413 events,
+  23,670 samples and one recording block**. Physical EyeLink INPUT evidence was
+  observed for Optical 1 and B1-B4. All **10 optical ON/OFF pairs**, all
+  **10 response press/release pairs**, plus the initial **SYNC press/release
+  pair** were observed.
+- Record the installed-path INPUT mapping below. Hex values are event bit masks;
+  EyeLink button labels and tPAD connector pin/output numbers are separate.
+
+| Event | EyeLink INPUT bit mask | EyeLink button |
+| --- | --- | --- |
+| Optical 1 (Opto) | `0x04` | 3 |
+| B1 | `0x20` | 6 |
+| B2 | `0x40` | 7 |
+| B3 | `0x08` | 4 |
+| B4 | `0x10` | 5 |
+
+- Observed idle register: **`0x80`**. Hardware RT comparison: **8/10 exact
+  matches**, the other **2 within 1 ms**; reported mean **221.2 ms**.
+- This updates the earlier pending status for observed EyeLink recording,
+  real EDF contents, INPUT receipt and RT agreement. Qualification is scoped to
+  this reported session/path. **Gaze quality, Data Viewer acceptance, display
+  synchronization, electrical fan-out and long-duration stability remain
+  unqualified.** BioSemi/BIOPAC receipt and BBTK sensitivity work remain separate.
+- The implementation agent did not repeat physical tests or EDF conversion.
+  Existing synthetic regression/Code Analyzer results remain distinct; no MATLAB
+  tests/Analyzer are rerun for this documentation-only change. Preserve all raw
+  recordings locally and keep EDF/ASC, tPAD logs and other experimental data
+  excluded from Git. Change only README, handoff and decisions; no MATLAB source
+  or hardware-setting changes.
