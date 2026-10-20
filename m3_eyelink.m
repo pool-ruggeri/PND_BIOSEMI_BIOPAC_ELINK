@@ -333,7 +333,8 @@ checkpoint;
         if isstring(reply) && isscalar(reply) && ~ismissing(reply), reply = char(reply); end
         if ~ischar(reply) || ~isrow(reply), return; end
         text = upper(strtrim(reply));
-        if isempty(regexp(text, '^[A-Z0-9_]+([,\s]+[A-Z0-9_]+)*$', 'once')), return; end
+        % Host replies may end with one comma; reject empty interior fields.
+        if isempty(regexp(text, '^[A-Z0-9_]+(\s*,\s*[A-Z0-9_]+|\s+[A-Z0-9_]+)*\s*,?$', 'once')), return; end
         tokens = regexp(text, '[A-Z0-9_]+', 'match');
         % Recognizable configuration lists only. Unknown text/types are not
         % evidence of disabled fields. NONE/OFF/0 explicitly disable a list.

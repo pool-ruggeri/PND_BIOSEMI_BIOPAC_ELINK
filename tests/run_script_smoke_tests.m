@@ -413,7 +413,7 @@ switch name
             assert(M1_MOCK.eye.opens==0 && ~M1_MOCK.serialOpen && ~M1_MOCK.displayOpen);
             M1_MOCK.eye.diagnosticPrompts = M1_MOCK.eye.diagnosticPrompts + 1;
             answer = 'HOST CHECKED NONPARTICIPANT';
-            if strcmp(M1_MOCK.eye.scenario, 'read_timeout'), answer = ''; end
+            if ismember(M1_MOCK.eye.scenario, {'read_timeout','filter_malformed','filter_unknown'}), answer = ''; end
             if strcmp(M1_MOCK.eye.scenario, 'diagnostic_wrong_confirmation'), answer = 'YES'; end
             varargout = {answer}; return;
         end
@@ -741,7 +741,9 @@ end
 
 function run_m3_scenarios(project)
 global M1_MOCK %#ok<GVMIS>
-cases = {'normal','numbered'; 'mixed','numbered_mixed'; 'snapshot','numbered_snapshot'; ...
+cases = {'real_host_filters','numbered'; 'host_filter_whitespace','numbered'; ...
+    'filter_malformed','numbered'; 'filter_unknown','numbered'; 'filter_missing','numbered'; ...
+    'normal','numbered'; 'mixed','numbered_mixed'; 'snapshot','numbered_snapshot'; ...
     'dummy','numbered'; 'connect_error','numbered'; 'owned_elsewhere','numbered'; ...
     'preflight_error','numbered'; 'openfile_error','numbered'; ...
     'filename_cancel','numbered'; 'history_collision','numbered'; ...
@@ -778,7 +780,7 @@ for k = 1:size(cases, 1)
         assert(e.shutdowns == 1);
     end
     if ismember(e.scenario, {'normal','mixed','snapshot','first_empty','third_valid','event_first_empty', ...
-            'unverified_confirm','sample_unverified','unusable_reply'})
+            'unverified_confirm','sample_unverified','unusable_reply','real_host_filters','host_filter_whitespace'})
         assert(strcmp(r.status,'complete') && e.starts==1 && e.receives==1);
         assert(r.eyelink.transfer_verified && r.eyelink.transfer_bytes==16);
         assert(r.eyelink.filename_confirmed && r.eyelink.calibration_accepted);
@@ -816,7 +818,7 @@ for k = 1:size(cases, 1)
             assert_numbered_run(r,strcmp(e.scenario,'mixed'));
         end
     elseif ismember(e.scenario, {'filename_cancel','calibration_cancel','abort','read_timeout', ...
-            'diagnostic_wrong_confirmation'})
+            'diagnostic_wrong_confirmation','filter_malformed','filter_unknown'})
         assert(strcmp(r.status,'aborted'));
     else
         assert(strcmp(r.status,'error'), e.scenario);
@@ -904,13 +906,32 @@ elseif ismember(e.scenario,{'read_timeout','unverified_confirm','diagnostic_wron
 elseif ismember(e.scenario,{'sample_unverified','unusable_reply','unverified_then_missing'})
     assert(e.queryCounts.file_sample_data==3 && e.queryCounts.file_event_filter==1);
 end
+if ismember(e.scenario,{'real_host_filters','host_filter_whitespace'})
+    expected={'AREA,BUTTON,GAZE,GAZERES,LEFT,RIGHT,STATUS,HMARKER,HMARKER,', ...
+        'RIGHT, LEFT, BLINK, FIXATION, SACCADE, MESSAGE, BUTTON, INPUT,'};
+    names={'file_sample_data','file_event_filter'};
+    assert(strcmp(r.eyelink.filter_configuration,'VERIFIED') && e.diagnosticPrompts==0);
+    for k=1:2
+        raw=expected{k};
+        if strcmp(e.scenario,'host_filter_whitespace'), raw=sprintf(' \t%s , \t',raw(1:end-1)); end
+        item=r.eyelink.filters.(names{k});
+        assert(e.queryCounts.(names{k})==1 && numel(item.attempts)==1);
+        assert(strcmp(item.verification,'VERIFIED') && item.status==0);
+        assert(strcmp(item.reply,raw) && strcmp(item.attempts.raw_reply,raw) && contains(output,raw));
+    end
+elseif ismember(e.scenario,{'filter_malformed','filter_unknown'})
+    assert(e.queryCounts.file_sample_data==3 && e.queryCounts.file_event_filter==1);
+    assert(strcmp(r.eyelink.filter_configuration,'UNVERIFIED') && e.opens==0);
+    assert(all(strcmp({r.eyelink.filters.file_sample_data.attempts.outcome},'UNUSABLE')));
+end
 if strcmp(e.scenario,'unusable_reply')
     a=r.eyelink.filters.file_sample_data.attempts;
     assert(isequal(a(1).raw_reply,sprintf(' \t ')) && isequal(a(2).raw_reply,{42}));
     assert(strcmp(a(3).raw_reply,'UNREADABLE ???'));
 end
-if ismember(e.scenario,{'filters_disabled','missing_after_empty','disabled_none'})
+if ismember(e.scenario,{'filters_disabled','missing_after_empty','disabled_none','filter_missing'})
     assert(contains(r.error,'lacks GAZE') && strcmp(r.eyelink.filter_configuration,'INVALID'));
+    if strcmp(e.scenario,'filter_missing'), assert(e.queryCounts.file_sample_data==1); end
 elseif ismember(e.scenario,{'event_missing','unverified_then_missing'})
     assert(contains(r.error,'lacks FIXATION,SACCADE,BLINK,MESSAGE'));
 elseif ismember(e.scenario,{'status_error','status_error_after_empty'})
@@ -955,7 +976,12 @@ switch operation
         sample=strcmp(name,'file_sample_data'); status=0;
         if ~sample, reply='LEFT,RIGHT,FIXATION,SACCADE,BLINK,MESSAGE'; end
         if strcmp(scenario,'filters_disabled'), reply='LEFT,RIGHT'; end
-        if ismember(scenario,{'read_timeout','unverified_confirm','diagnostic_wrong_confirmation'})
+        if ismember(scenario,{'real_host_filters','host_filter_whitespace'})
+            replies={'AREA,BUTTON,GAZE,GAZERES,LEFT,RIGHT,STATUS,HMARKER,HMARKER,', ...
+                'RIGHT, LEFT, BLINK, FIXATION, SACCADE, MESSAGE, BUTTON, INPUT,'};
+            reply=replies{2-sample};
+            if strcmp(scenario,'host_filter_whitespace'), reply=sprintf(' \t%s , \t',reply(1:end-1)); end
+        elseif ismember(scenario,{'read_timeout','unverified_confirm','diagnostic_wrong_confirmation'})
             reply='';
         elseif sample
             switch scenario
@@ -980,6 +1006,12 @@ switch operation
                     error('Injected query exception');
                 case 'disabled_none'
                     reply='NONE';
+                case 'filter_malformed'
+                    replies={'GAZE,,','LEFT,,GAZE',',GAZE'}; reply=replies{number};
+                case 'filter_unknown'
+                    reply='LEFT,RIGHT,GAZE,UNKNOWN,';
+                case 'filter_missing'
+                    reply='AREA,BUTTON,GAZERES,LEFT,RIGHT,STATUS,HMARKER,HMARKER,';
             end
         elseif ismember(scenario,{'event_missing','unverified_then_missing'})
             reply='LEFT,RIGHT';

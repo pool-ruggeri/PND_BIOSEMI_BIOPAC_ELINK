@@ -4,6 +4,43 @@ Delivery date: 2026-10-15; updated 2026-10-20 (Europe/Zurich). Status: M1/M2
 implemented and physical task tests reported successful; external TTL and full
 display qualification pending. Roles: PO = user; TL = ChatGPT; implementation = Codex.
 
+## M3 Host reply trailing-comma correction (2026-10-20)
+
+The PO's next EYELINK CL 5.50 test returned these status-0 replies:
+
+```text
+file_sample_data: AREA,BUTTON,GAZE,GAZERES,LEFT,RIGHT,STATUS,HMARKER,HMARKER,
+file_event_filter: RIGHT, LEFT, BLINK, FIXATION, SACCADE, MESSAGE, BUTTON, INPUT,
+```
+
+All required fields are present. The parser introduced in the earlier hotfix
+incorrectly rejected the final comma. The exact-reply regression reproduced
+UNUSABLE/UNVERIFIED before this correction. `filter_tokens()` now accepts one
+optional trailing comma and surrounding whitespace, while rejecting empty
+interior fields, multiple trailing commas and unknown tokens. Repeated known
+HMARKER fields are accepted; they are configuration tokens, not serial events.
+Original replies remain unchanged in attempt logs and session/recovery metadata.
+
+Regression assertions require both exact replies to be VERIFIED on attempt 1,
+with no retry or diagnostic confirmation. Additional cases cover surrounding
+whitespace, malformed/unknown fields and a trailing-comma list missing GAZE.
+Existing empty-reply retries, missing-field stops and query-error behavior stay
+in place. The only production change is the parser expression/comment; no Host
+settings, SDK, EDF lifecycle, calibration, tPAD or timing changes were made.
+Real EDF/gaze/event and timing qualification still require physical validation.
+
+Focused MATLAB R2023b validation: all 47 isolated M3 real-script scenarios
+passed; Code Analyzer reported zero findings across 24 MATLAB source/test files.
+`.local/m3_filter_parser/before_fix.log` records the expected regression failure
+with the old parser; `.local/m3_filter_parser/focused.log` records the passing
+correction. These are offline tests, not physical post-fix acquisition.
+Full regressions also passed: 11 offline groups (123 split positions), 10 optical
+groups, 6 M2 analysis groups, 30 M1 script cases plus geometry/handle-0 checks,
+7 M2 script cases and all 47 M3 cases. All three historical pulse-recovery
+regressions passed; the first two recordings retain their original missed-flip
+full-check FAIL results. Full-suite results and zero Analyzer findings are in
+`.local/m3_filter_parser/regression.log`.
+
 ## M3 ReadFromTracker hotfix (2026-10-20)
 
 **Reported physical evidence:** the PO's EyeLink 1000 Plus test connected to
