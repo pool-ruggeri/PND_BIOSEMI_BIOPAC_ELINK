@@ -6,6 +6,8 @@ s = struct('host_basename', '', 'host_edf', '', 'run_id', '', 'local_edf', '', .
     'filename_confirmed', false, 'calibration_accepted', false, ...
     'setup_result', NaN, 'calibration_result', NaN, 'calibration_text', '', ...
     'tracker_version', NaN, 'tracker_text', '', 'filters', struct, ...
+    'filter_configuration', 'NOT_CHECKED', 'host_configuration_confirmed', false, ...
+    'nonparticipant_diagnostic', false, 'edf_validation_required', true, ...
     'versions', struct, 'connection_owned', false, 'file_may_be_open', false, ...
     'file_created', false, 'start_attempted', false, 'recording_confirmed', false, ...
     'stop_attempted', false, 'close_attempted', false, 'close_status', NaN, ...
@@ -45,15 +47,29 @@ checkpoint;
             'Normal real EyeLink connection required; dummy/broadcast acquisition is rejected.');
         [s.tracker_version, s.tracker_text] = api('GetTrackerVersion');
         fprintf('EyeLink tracker: %s (type %d)\n', s.tracker_text, s.tracker_version);
-        for name = {'file_sample_data', 'file_event_filter'}
-            [status, reply] = api('ReadFromTracker', name{1});
-            s.filters.(name{1}) = struct('status', status, 'reply', reply);
-            checkpoint;
-            assert(status == 0 && ~isempty(strtrim(reply)), 'M3:HostSettings', ...
-                'Cannot verify Host %s. Operator/PO must inspect it; no setting was changed.', name{1});
+        unverified = {};
+        if ~query_filter('file_sample_data', {'GAZE'})
+            unverified{end+1} = 'file_sample_data';
         end
-        require_tokens('file_sample_data', {'GAZE'});
-        require_tokens('file_event_filter', {'FIXATION','SACCADE','BLINK','MESSAGE'});
+        if ~query_filter('file_event_filter', {'FIXATION','SACCADE','BLINK','MESSAGE'})
+            unverified{end+1} = 'file_event_filter';
+        end
+        s.filter_configuration = 'VERIFIED';
+        if ~isempty(unverified)
+            s.filter_configuration = 'UNVERIFIED'; checkpoint;
+            fprintf(2, ['WARNING: Host filter configuration UNVERIFIED (%s): no usable reply after three attempts.\n' ...
+                'This does not establish that the Host configuration is invalid. No settings were changed.\n' ...
+                'Only a controlled NONPARTICIPANT EDF diagnostic may continue after checking the Host.\n' ...
+                'Post-recording EDF/EDF2ASC validation is required before gaze/events are qualified.\n'], ...
+                strjoin(unverified, ', '));
+            answer = input(['Type HOST CHECKED NONPARTICIPANT only after checking the Host recording configuration ' ...
+                '(anything else cancels): '], 's');
+            assert(strcmp(strtrim(answer), 'HOST CHECKED NONPARTICIPANT'), 'M3:Abort', ...
+                'Unverified Host configuration not confirmed for a nonparticipant diagnostic; no EDF was opened.');
+            s.host_configuration_confirmed = true;
+            s.nonparticipant_diagnostic = true;
+        end
+        checkpoint;
         reserve_name;
         fprintf(['\nProposed Host EDF: %s\nLocal run: %s\n' ...
             'OpenFile can OVERWRITE a Host EDF. Inspect the Host file list first.\n'], ...
@@ -261,12 +277,74 @@ checkpoint;
         end
     end
 
-    function require_tokens(name, required)
-        tokens = regexp(upper(s.filters.(name).reply), '[A-Z]+', 'match');
-        missing = required(~ismember(required, tokens));
-        assert(isempty(missing), 'M3:HostSettings', ...
-            'Host %s lacks %s. Stop: operator/PO approval is required for any correction; settings were not changed.', ...
-            name, strjoin(missing, ','));
+    function verified = query_filter(name, required)
+        % PTB can return status 0 with no reply. Three calls, 50 ms between
+        % unusable replies, BEFORE EDF/window/serial creation. Each native call
+        % also has PTB's own reply timeout; no retries occur during acquisition.
+        verified = false;
+        s.filters.(name) = struct('status', NaN, 'reply', [], 'verification', 'UNVERIFIED', ...
+            'attempts', struct('number', {}, 'status', {}, 'raw_reply', {}, 'outcome', {}, 'error', {}));
+        for number = 1:3
+            try
+                [status, reply] = api('ReadFromTracker', name);
+            catch problem
+                record_query(name, number, NaN, [], 'QUERY_ERROR', problem.message);
+                s.filter_configuration = 'QUERY_ERROR'; checkpoint; rethrow(problem);
+            end
+            [readable, tokens] = filter_tokens(name, reply);
+            missing = required(~ismember(required, tokens));
+            outcome = 'UNUSABLE';
+            if ~isequal(status, 0)
+                outcome = 'QUERY_ERROR';
+            elseif readable
+                outcome = 'VERIFIED';
+                if ~isempty(missing), outcome = 'MISSING_FIELDS'; end
+            end
+            record_query(name, number, status, reply, outcome, '');
+            if strcmp(outcome, 'QUERY_ERROR')
+                s.filter_configuration = 'QUERY_ERROR'; checkpoint;
+                error('M3:HostSettings', 'ReadFromTracker %s returned nonzero status; no EDF was opened.', name);
+            elseif strcmp(outcome, 'MISSING_FIELDS')
+                s.filter_configuration = 'INVALID'; checkpoint;
+                error('M3:HostSettings', 'Host %s lacks %s. Stop: settings were not changed; no override is permitted.', ...
+                    name, strjoin(missing, ','));
+            elseif strcmp(outcome, 'VERIFIED')
+                verified = true; return;
+            end
+            if number < 3, WaitSecs(0.05); end
+        end
+    end
+
+    function record_query(name, number, status, reply, outcome, problem)
+        item = s.filters.(name);
+        item.status = status; item.reply = reply;
+        item.attempts(end+1) = struct('number', number, 'status', status, ...
+            'raw_reply', {reply}, 'outcome', outcome, 'error', problem);
+        if ~strcmp(outcome, 'UNUSABLE'), item.verification = outcome; end
+        s.filters.(name) = item;
+        fprintf('EyeLink %s attempt %d/3: status=%s; outcome=%s; raw reply (%s):\n', ...
+            name, number, mat2str(status), outcome, class(reply));
+        disp(reply);
+        checkpoint; % Retain every raw response even if preflight subsequently fails.
+    end
+
+    function [readable, tokens] = filter_tokens(name, reply)
+        readable = false; tokens = {};
+        if isstring(reply) && isscalar(reply) && ~ismissing(reply), reply = char(reply); end
+        if ~ischar(reply) || ~isrow(reply), return; end
+        text = upper(strtrim(reply));
+        if isempty(regexp(text, '^[A-Z0-9_]+([,\s]+[A-Z0-9_]+)*$', 'once')), return; end
+        tokens = regexp(text, '[A-Z0-9_]+', 'match');
+        % Recognizable configuration lists only. Unknown text/types are not
+        % evidence of disabled fields. NONE/OFF/0 explicitly disable a list.
+        known = {'LEFT','RIGHT','NONE','OFF','0'};
+        if strcmp(name, 'file_sample_data')
+            known = [known, {'GAZE','HREF','RAW','PUPIL','AREA','HTARGET','HMARKER', ...
+                'GAZERES','BUTTON','STATUS','INPUT'}];
+        else
+            known = [known, {'FIXATION','SACCADE','BLINK','MESSAGE','BUTTON','INPUT','FIXUPDATE'}];
+        end
+        readable = all(ismember(tokens, known));
     end
 
     function reserve_name

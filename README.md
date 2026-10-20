@@ -159,9 +159,25 @@ Host filter/rate/eye changes, clock conversion, or digital INPUT setup is includ
 
 Before the full-screen window opens, M3 verifies MEX loading and establishes a
 normal real connection. It reads `file_sample_data` and `file_event_filter`;
-GAZE samples and FIXATION/SACCADE/BLINK/MESSAGE events must be enabled. An
-unverifiable/disabled setting stops with the specific issue; changing it needs
-operator/PO approval outside the script. Existing `PsychStartup`, if available,
+GAZE samples and FIXATION/SACCADE/BLINK/MESSAGE events must be enabled. Readable
+replies missing these fields and nonzero query statuses stop before EDF creation.
+Status 0 with an empty/unusable reply gets at most three attempts per setting,
+50 ms apart (in addition to PTB's native query timeout). Each attempt, status,
+unaltered raw reply and outcome is saved in `run.eyelink.filters` and the recovery
+file. Unknown/malformed replies are not evidence of invalid Host settings.
+
+If replies remain unusable, configuration stays **UNVERIFIED**. Only a controlled
+**nonparticipant EDF diagnostic** may proceed: personally check the Host recording
+configuration, then type exactly `HOST CHECKED NONPARTICIPANT` at the warning.
+Anything else cancels before EDF creation. This confirmation cannot override
+readable missing fields or query errors. The run retains UNVERIFIED,
+`host_configuration_confirmed`, `nonparticipant_diagnostic` and
+`edf_validation_required` metadata; successful recording/transfer does not qualify
+gaze/event acquisition. Post-recording EDF/EDF2ASC inspection must verify actual
+gaze samples and required events before qualification. No Host filter, sampling
+rate or other recording setting is changed automatically.
+
+Existing `PsychStartup`, if available,
 performs only its normal process-local DLL-path setup. Missing PTB paths fail
 with an actionable preflight error; no persistent setup is installed.
 
@@ -226,8 +242,9 @@ Host deletion, or overwrite retry occurs. EDF/ASC files are Git-ignored.
 1. With the PO, connect/power the correct Host and verify its dedicated Ethernet
    route; do not alter IP/firewall/Host settings automatically. Ensure the BBTK
    configuration app has released COM5. Inspect existing Host files/settings.
-2. Run the command above; confirm an actually unused proposed name, calibrate,
-   validate and accept quality. Verify recording is active before physical SYNC.
+2. Run the command above; if filters are UNVERIFIED, follow the nonparticipant
+   diagnostic confirmation above. Confirm an actually unused proposed name,
+   calibrate, validate and accept quality. Verify recording before physical SYNC.
 3. Press/release Button 1, then complete ten responses. Check physical button
    mapping, ten stimuli, raw/classified optics, final hardware RTs, and logged
    call durations/poll gaps/missed flips against M2. Do not force artifact counts.

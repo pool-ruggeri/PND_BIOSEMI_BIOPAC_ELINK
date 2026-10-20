@@ -321,7 +321,7 @@ cleanup = onCleanup(@() fclose(fid));
 bytes = fread(fid, Inf, '*uint8');
 end
 
-function execute_script(name)
+function output = execute_script(name)
 global M1_MOCK %#ok<GVMIS>
 previousSync = M1_MOCK.preferences.SkipSyncTests;
 openFiles = fopen('all');
@@ -409,6 +409,14 @@ switch name
         M1_MOCK.time = M1_MOCK.time + varargin{end};
     case 'input'
         if ~isfield(M1_MOCK, 'eye'), error('Calibration must not prompt for input.'); end
+        if contains(varargin{1}, 'HOST CHECKED NONPARTICIPANT')
+            assert(M1_MOCK.eye.opens==0 && ~M1_MOCK.serialOpen && ~M1_MOCK.displayOpen);
+            M1_MOCK.eye.diagnosticPrompts = M1_MOCK.eye.diagnosticPrompts + 1;
+            answer = 'HOST CHECKED NONPARTICIPANT';
+            if strcmp(M1_MOCK.eye.scenario, 'read_timeout'), answer = ''; end
+            if strcmp(M1_MOCK.eye.scenario, 'diagnostic_wrong_confirmation'), answer = 'YES'; end
+            varargout = {answer}; return;
+        end
         proposed = regexp(varargin{1}, 'UNUSED (E[A-F0-9]{7})', 'tokens', 'once');
         assert(~isempty(proposed)); M1_MOCK.eye.proposed = proposed{1};
         if strcmp(M1_MOCK.eye.scenario, 'history_collision')
@@ -738,6 +746,11 @@ cases = {'normal','numbered'; 'mixed','numbered_mixed'; 'snapshot','numbered_sna
     'preflight_error','numbered'; 'openfile_error','numbered'; ...
     'filename_cancel','numbered'; 'history_collision','numbered'; ...
     'filters_disabled','numbered'; 'read_timeout','numbered'; ...
+    'first_empty','numbered'; 'third_valid','numbered'; 'event_first_empty','numbered'; ...
+    'unverified_confirm','numbered'; 'sample_unverified','numbered'; 'unusable_reply','numbered'; ...
+    'event_missing','numbered'; 'missing_after_empty','numbered'; 'unverified_then_missing','numbered'; ...
+    'status_error','numbered'; 'status_error_after_empty','numbered'; 'query_exception','numbered'; ...
+    'diagnostic_wrong_confirmation','numbered'; 'disabled_none','numbered'; ...
     'calibration_cancel','numbered'; 'calibration_error','numbered'; ...
     'start_error','numbered'; 'recording_error','numbered'; ...
     'transfer_interrupted','numbered'; 'transfer_mismatch','numbered'; 'destination_exists','numbered'; ...
@@ -752,8 +765,8 @@ for k = 1:size(cases, 1)
         'recording',false,'open',false,'setup',false,'acceptPrompt',false,'accepted',false, ...
         'starts',0,'stops',0,'closes',0,'shutdowns',0,'opens',0,'initializes',0,'receives',0, ...
         'startTime',NaN,'syncTime',NaN,'messages',{{}},'messageTimes',[], ...
-        'operations',{{}},'proposed','');
-    execute_script('numbered_circle_eyelink'); r = latest_run(project, 'numbered_circle_eyelink');
+        'operations',{{}},'proposed','','queryCounts',struct,'diagnosticPrompts',0);
+    output = execute_script('numbered_circle_eyelink'); r = latest_run(project, 'numbered_circle_eyelink');
     e = M1_MOCK.eye;
     assert(isfield(r,'eyelink') && r.eyelink.finished);
     assert(~M1_MOCK.serialOpen && ~M1_MOCK.displayOpen);
@@ -764,7 +777,8 @@ for k = 1:size(cases, 1)
     else
         assert(e.shutdowns == 1);
     end
-    if ismember(e.scenario, {'normal','mixed','snapshot'})
+    if ismember(e.scenario, {'normal','mixed','snapshot','first_empty','third_valid','event_first_empty', ...
+            'unverified_confirm','sample_unverified','unusable_reply'})
         assert(strcmp(r.status,'complete') && e.starts==1 && e.receives==1);
         assert(r.eyelink.transfer_verified && r.eyelink.transfer_bytes==16);
         assert(r.eyelink.filename_confirmed && r.eyelink.calibration_accepted);
@@ -801,7 +815,8 @@ for k = 1:size(cases, 1)
         else
             assert_numbered_run(r,strcmp(e.scenario,'mixed'));
         end
-    elseif ismember(e.scenario, {'filename_cancel','calibration_cancel','abort'})
+    elseif ismember(e.scenario, {'filename_cancel','calibration_cancel','abort','read_timeout', ...
+            'diagnostic_wrong_confirmation'})
         assert(strcmp(r.status,'aborted'));
     else
         assert(strcmp(r.status,'error'), e.scenario);
@@ -831,6 +846,7 @@ for k = 1:size(cases, 1)
     end
     if strcmp(e.scenario,'recording_error'), assert(r.summary.presented_trials==2); end
     if strcmp(e.scenario,'start_error'), assert(r.summary.presented_trials==0); end
+    assert_filter_queries(r, e, output);
     if e.opens
         assert(~isempty(regexp(r.eyelink.host_basename,'^E[0-9A-F]{7}$','once')));
         saved=load(fullfile(r.folder,'eyelink_recovery.mat'));
@@ -838,6 +854,75 @@ for k = 1:size(cases, 1)
     end
 end
 fprintf('PASS: %d M3 real-script scenarios, with isolated EyeLink/PTB/tPAD mocks.\n',size(cases,1));
+end
+
+function assert_filter_queries(r, e, output)
+global M1_MOCK %#ok<GVMIS>
+fields = fieldnames(r.eyelink.filters);
+assert(r.eyelink.edf_validation_required);
+saved=load(fullfile(r.folder,'eyelink_recovery.mat'));
+assert(isequaln(saved.eyelink.filters,r.eyelink.filters));
+for name={'filter_configuration','host_configuration_confirmed','nonparticipant_diagnostic','edf_validation_required'}
+    assert(isequal(saved.eyelink.(name{1}),r.eyelink.(name{1})));
+end
+for k=1:numel(fields)
+    name=fields{k}; item=r.eyelink.filters.(name); a=item.attempts;
+    assert(numel(a)>=1 && numel(a)<=3 && isequal([a.number],1:numel(a)));
+    assert(numel(a)==e.queryCounts.(name));
+    assert(isequaln(item.reply,a(end).raw_reply) && isequaln(item.status,a(end).status));
+    assert(count(output,['EyeLink ' name ' attempt '])==numel(a));
+    for j=1:numel(a)
+        assert(contains(output,sprintf('outcome=%s; raw reply (%s):',a(j).outcome,class(a(j).raw_reply))));
+        if j<numel(a), assert(strcmp(a(j).outcome,'UNUSABLE') && a(j).status==0); end
+    end
+    calls=r.eyelink.calls(strcmp({r.eyelink.calls.operation},'ReadFromTracker') & ...
+        strcmp({r.eyelink.calls.text},name));
+    assert(all([calls(2:end).start_ptb]-[calls(1:end-1).end_ptb]>=0.05-1e-10));
+end
+if strcmp(r.eyelink.filter_configuration,'VERIFIED')
+    assert(e.diagnosticPrompts==0 && ~r.eyelink.nonparticipant_diagnostic);
+    assert(all(cellfun(@(name)strcmp(r.eyelink.filters.(name).verification,'VERIFIED'),fields)));
+elseif strcmp(r.eyelink.filter_configuration,'UNVERIFIED')
+    assert(e.diagnosticPrompts==1 && contains(output,'WARNING: Host filter configuration UNVERIFIED'));
+    assert(contains(output,'Post-recording EDF/EDF2ASC validation is required'));
+    assert(r.eyelink.host_configuration_confirmed==r.eyelink.nonparticipant_diagnostic);
+    if ~r.eyelink.host_configuration_confirmed
+        assert(strcmp(r.status,'aborted') && e.opens==0 && e.starts==0);
+    end
+elseif ismember(r.eyelink.filter_configuration,{'INVALID','QUERY_ERROR'})
+    assert(e.diagnosticPrompts==0 && e.opens==0 && e.starts==0 && strcmp(r.status,'error'));
+    assert(~r.eyelink.host_configuration_confirmed && ~r.eyelink.nonparticipant_diagnostic);
+end
+if ismember(e.scenario,{'first_empty','missing_after_empty','status_error_after_empty'})
+    assert(e.queryCounts.file_sample_data==2);
+elseif strcmp(e.scenario,'third_valid')
+    assert(e.queryCounts.file_sample_data==3 && isstring(r.eyelink.filters.file_sample_data.reply));
+elseif strcmp(e.scenario,'event_first_empty')
+    assert(e.queryCounts.file_sample_data==1 && e.queryCounts.file_event_filter==2);
+elseif ismember(e.scenario,{'read_timeout','unverified_confirm','diagnostic_wrong_confirmation'})
+    assert(e.queryCounts.file_sample_data==3 && e.queryCounts.file_event_filter==3);
+elseif ismember(e.scenario,{'sample_unverified','unusable_reply','unverified_then_missing'})
+    assert(e.queryCounts.file_sample_data==3 && e.queryCounts.file_event_filter==1);
+end
+if strcmp(e.scenario,'unusable_reply')
+    a=r.eyelink.filters.file_sample_data.attempts;
+    assert(isequal(a(1).raw_reply,sprintf(' \t ')) && isequal(a(2).raw_reply,{42}));
+    assert(strcmp(a(3).raw_reply,'UNREADABLE ???'));
+end
+if ismember(e.scenario,{'filters_disabled','missing_after_empty','disabled_none'})
+    assert(contains(r.error,'lacks GAZE') && strcmp(r.eyelink.filter_configuration,'INVALID'));
+elseif ismember(e.scenario,{'event_missing','unverified_then_missing'})
+    assert(contains(r.error,'lacks FIXATION,SACCADE,BLINK,MESSAGE'));
+elseif ismember(e.scenario,{'status_error','status_error_after_empty'})
+    assert(r.eyelink.filters.file_sample_data.status==-1 && contains(r.error,'nonzero status'));
+elseif strcmp(e.scenario,'query_exception')
+    a=r.eyelink.filters.file_sample_data.attempts;
+    assert(numel(a)==1 && isnan(a.status) && contains(a.error,'Injected query exception'));
+end
+if ~isempty(fields) && e.opens==0
+    assert(e.starts==0 && e.closes==0 && ~r.eyelink.connection_owned);
+    assert(M1_MOCK.serialOpens==0);
+end
 end
 
 function varargout = eye_dispatch(operation, varargin)
@@ -861,12 +946,47 @@ switch operation
         varargout={result};
     case 'GetTrackerVersion', varargout={5,'EYELINK CL 5.15'};
     case 'ReadFromTracker'
-        assert(~e.recording);
+        assert(~e.recording && e.opens==0 && ~M1_MOCK.serialOpen && ~M1_MOCK.displayOpen);
+        name=varargin{1}; number=1;
+        if isfield(e.queryCounts,name), number=e.queryCounts.(name)+1; end
+        M1_MOCK.eye.queryCounts.(name)=number;
+        assert(number<=3,'Unbounded ReadFromTracker retries');
         reply='LEFT,RIGHT,GAZE,AREA,STATUS';
-        if strcmp(varargin{1},'file_event_filter'), reply='LEFT,RIGHT,FIXATION,SACCADE,BLINK,MESSAGE'; end
+        sample=strcmp(name,'file_sample_data'); status=0;
+        if ~sample, reply='LEFT,RIGHT,FIXATION,SACCADE,BLINK,MESSAGE'; end
         if strcmp(scenario,'filters_disabled'), reply='LEFT,RIGHT'; end
-        if strcmp(scenario,'read_timeout'), reply=''; end
-        varargout={0,reply};
+        if ismember(scenario,{'read_timeout','unverified_confirm','diagnostic_wrong_confirmation'})
+            reply='';
+        elseif sample
+            switch scenario
+                case 'first_empty'
+                    if number==1, reply=''; end
+                case 'third_valid'
+                    reply="left right gaze area status";
+                    if number<3, reply=''; end
+                case {'sample_unverified','unverified_then_missing'}
+                    reply='';
+                case 'unusable_reply'
+                    replies={sprintf(' \t '),{42},'UNREADABLE ???'}; reply=replies{number};
+                case 'missing_after_empty'
+                    reply='LEFT,RIGHT';
+                    if number==1, reply=''; end
+                case 'status_error'
+                    status=-1;
+                case 'status_error_after_empty'
+                    status=-1;
+                    if number==1, status=0; reply=''; end
+                case 'query_exception'
+                    error('Injected query exception');
+                case 'disabled_none'
+                    reply='NONE';
+            end
+        elseif ismember(scenario,{'event_missing','unverified_then_missing'})
+            reply='LEFT,RIGHT';
+        elseif strcmp(scenario,'event_first_empty') && number==1
+            reply='';
+        end
+        varargout={status,reply};
     case 'OpenFile'
         assert(e.initializes==1 && e.connected && ~e.setup && ~M1_MOCK.displayOpen && ~M1_MOCK.serialOpen);
         assert(numel(varargin)==1,'Obsolete overwrite flag must never be used');

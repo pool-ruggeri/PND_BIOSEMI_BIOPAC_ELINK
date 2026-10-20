@@ -190,7 +190,8 @@ No further PO architectural decision is required to implement this milestone.
 - Require real normal connection, reject dummy/broadcast/foreign ownership,
   and log tracker/version data. Read required GAZE file-sample and
   FIXATION/SACCADE/BLINK/MESSAGE file-event availability; disabled or
-  unverifiable settings stop for operator/PO action without reconfiguration.
+  unverifiable settings originally stopped for operator/PO action without
+  reconfiguration (unusable-reply policy superseded by the 2026-10-20 hotfix below).
   Standard calibration AND validation require explicit operator quality
   acceptance; no numerical thresholds or Host geometry/eye/rate/filter changes
   are invented. Only actual display-pixel coordinates and run preamble are set.
@@ -219,3 +220,30 @@ No further PO architectural decision is required to implement this milestone.
   abort/transfer recovery and integrated timing remain controlled lab acceptance.
   Full display and external TTL qualification remain separate; do not configure
   EyeLink physical digital INPUT, networking, firmware or installed software.
+
+## M3 status-0 empty-reply preflight hotfix (2026-10-20)
+
+- PO physical test: real Host connection and initialization succeeded on
+  EYELINK CL 5.50; status-0 empty/unusable `file_sample_data` reply stopped the
+  task before EDF creation. This is reported hardware evidence, separate from
+  automated tests. No EDF/gaze/event/timing qualification follows from it.
+- A successful ReadFromTracker request status does not guarantee usable reply
+  data. Retry only status-0 unusable replies, at most three attempts per setting,
+  with 50 ms between attempts in addition to PTB's native timeout. Retain each
+  raw reply, status, attempt number and outcome; all checks remain before EDF,
+  window and tPAD initialization. Do not modify Host settings or installed SDK.
+- Recognizable token lists verify the existing required GAZE and
+  FIXATION/SACCADE/BLINK/MESSAGE fields. Readable missing fields, nonzero status
+  or native exceptions stop with no override. Empty/nontext/malformed/unknown
+  replies leave configuration UNVERIFIED, rather than declaring it invalid.
+- If retries are exhausted and neither query identified a configuration error,
+  require the operator to check Host recording settings and explicitly type
+  `HOST CHECKED NONPARTICIPANT`. Only a controlled nonparticipant EDF diagnostic
+  may continue; refusal cancels before creation. The unused-EDF name confirmation
+  and all calibration/recording safeguards still apply independently.
+- Keep UNVERIFIED, Host-check confirmation, nonparticipant diagnostic and
+  required EDF validation in run/recovery metadata. A completed diagnostic or
+  byte-verified transfer never upgrades this status. Post-recording EDF/EDF2ASC
+  validation must establish actual gaze samples and required events before
+  qualification. Preserve M1/M2, calibration, serial acquisition, hardware
+  timestamps, TTL, patch, SkipSyncTests and ten-trial logic.

@@ -1,10 +1,72 @@
 # M1 / M2 project handoff and M3 audit
 
-Delivery date: 2026-10-15; updated 2026-10-19 (Europe/Zurich). Status: M1/M2
+Delivery date: 2026-10-15; updated 2026-10-20 (Europe/Zurich). Status: M1/M2
 implemented and physical task tests reported successful; external TTL and full
 display qualification pending. Roles: PO = user; TL = ChatGPT; implementation = Codex.
 
-## M3 implementation status (2026-10-19)
+## M3 ReadFromTracker hotfix (2026-10-20)
+
+**Reported physical evidence:** the PO's EyeLink 1000 Plus test connected to
+the Host and initialized successfully, reporting **EYELINK CL 5.50**.
+`ReadFromTracker('file_sample_data')` returned status 0 with an empty/unusable
+reply; preflight stopped before EDF creation. This establishes connection and
+initialization only. It does not qualify recording, calibration, EDF contents,
+Data Viewer import, timing or digital INPUT. The agent has not repeated a
+physical test.
+
+Root cause: preflight equated status 0 with readable configuration. The
+[PTB implementation](https://github.com/Psychtoolbox-3/Psychtoolbox-3/blob/master/PsychSourceGL/Source/Common/Eyelink/EyelinkReadFromTracker.c)
+initializes an empty reply buffer and returns the request status without checking
+that the response is nonempty. The PO's observed reply therefore does not prove
+that Host recording settings are invalid.
+
+`m3_eyelink.m` now makes at most three read-only attempts per setting, separated
+by 50 ms only after status-0 unusable replies. PTB's own native reply timeout is
+additional; all queries precede EDF, display and serial creation. A usable reply
+is a recognizable comma/whitespace-separated configuration token list (case
+insensitive); empty, nontext, malformed or unknown tokens remain unusable.
+Readable lists must contain GAZE samples and FIXATION/SACCADE/BLINK/MESSAGE
+events. Readable missing fields (including NONE/OFF/0) stop immediately without
+override. Nonzero status or native exceptions also stop without diagnostic
+override. Every attempt retains its number, status, raw reply, outcome and
+exception text in `filters.<setting>.attempts`, plus normal native call timings.
+
+After exhausted unusable replies, both setting checks must finish without an
+identified problem before the warning/confirmation gate. Configuration remains
+**UNVERIFIED**; the operator must inspect Host recording settings and type exactly
+`HOST CHECKED NONPARTICIPANT` to allow a controlled nonparticipant diagnostic.
+Refusal cancels before any EDF/window/tPAD acquisition. The existing unused-EDF
+filename confirmation remains independently mandatory. UNVERIFIED and explicit
+`host_configuration_confirmed`, `nonparticipant_diagnostic`,
+`edf_validation_required` flags persist in both `session.mat` and
+`eyelink_recovery.mat`, including successful diagnostic transfers. Post-recording
+EDF/EDF2ASC validation of actual gaze samples and required events is mandatory
+before acquisition can be qualified. No Host setting changes or qualification
+override is implemented. M1/M2, EDF lifecycle, calibration and ten-trial/tPAD/TTL
+logic remain unchanged.
+
+Automated validation on MATLAB R2023b Update 1 (isolated synthetic
+PTB/EyeLink/tPAD, no physical acquisition):
+
+- 42 focused M3 real-script scenarios passed, including first-empty/third-attempt
+  recovery, event-filter retries, repeated empty replies, whitespace/nontext/
+  malformed replies, readable missing fields, nonzero status, native exceptions,
+  explicit diagnostic acceptance/refusal and cleanup after preflight failure.
+  Tests check the three-attempt bound, 50 ms interval, raw-reply retention,
+  warning/confirmation gate, persistent metadata and unchanged ten-trial behavior.
+- Existing 11 offline groups (123 split positions), 10 optical groups, 6 M2
+  analysis groups, 30 M1 script scenarios plus geometry/handle-0 ownership, and
+  7 M2 script scenarios passed. Three historical replays still recover 50 pulses
+  with 11/5/13 artifacts; the first two retain their original missed-flip full
+  check FAIL results. No physical timing failure is hidden by the passing
+  reconstruction regressions.
+- Code Analyzer: zero findings across all 24 source/test MATLAB files.
+- Local verification logs: `.local/m3_read_retry/regression.log` (complete suite)
+  and `.local/m3_read_retry/release_focused.log` (final focused metadata checks
+  and Analyzer). The fixture's temporary input/which shadow warnings are expected;
+  cleanup assertions reject resource leaks and destructor warnings.
+
+## M3 implementation status (2026-10-19; historical delivery)
 
 The TL/PO approved the [M3 audit](EYELINK_M3_TECHNICAL_AUDIT.md), with a critical
 EDF correction. `numbered_circle_eyelink.m` and the small shared EyeLink owner
@@ -89,8 +151,10 @@ selection. The [README acceptance procedure](../README.md#first-controlled-labor
 requires the PO to confirm the real Host route, unused filename, calibration,
 continuous recording/SYNC, ten trials, real EDF gaze/events and Data Viewer
 segmentation, actual latency, abort and transfer recovery. The audit found the
-Host Ethernet link disconnected. No physical connection, calibration, EDF,
-gaze, Data Viewer import, external TTL or full display timing claim is made.
+Host Ethernet link disconnected at the audit. The later PO-reported physical
+connection/initialization result is recorded in the hotfix section above;
+calibration, EDF, gaze, Data Viewer import, external TTL and full display timing
+remain unqualified.
 Physical EyeLink INPUT configuration is excluded and belongs to the next
 hardware milestone. BBTK sensitivity investigation remains pending.
 
