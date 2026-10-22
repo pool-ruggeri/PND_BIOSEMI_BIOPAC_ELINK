@@ -14,10 +14,17 @@ names = {'Screen', 'IOPort', 'GetSecs', 'WaitSecs', 'KbCheck', 'KbName', ...
     'DrawFormattedText', 'GetMouse', 'kPsychGUIWindow', 'input', ...
     'Eyelink', 'EyelinkInitDefaults', 'EyelinkUpdateDefaults', ...
     'EyelinkDoTrackerSetup', 'PsychEyelinkDispatchCallback', 'InitializePsychSound', ...
-    'KbReleaseWait', 'PsychStartup', 'which'};
+    'KbReleaseWait', 'PsychStartup', 'which','InitializeMatlabOpenGL', ...
+    'glPushAttrib','glEnable','glScissor','glColorMask','glClearColor','glClear','glPopAttrib'};
 for k = 1:numel(names)
     fid = fopen(fullfile(stubs, [names{k} '.m']), 'w');
     assert(fid >= 0);
+    if strcmp(names{k},'InitializeMatlabOpenGL')
+        fprintf(fid, ['function varargout = InitializeMatlabOpenGL(varargin)\n' ...
+            'evalin(''caller'',''global GL GLU'');\n' ...
+            'global M1_MOCK\n[varargout{1:nargout}]=M1_MOCK.dispatch(''InitializeMatlabOpenGL'',varargin{:});\nend\n']);
+        fclose(fid); continue;
+    end
     fprintf(fid, ['function varargout = %s(varargin)\n' ...
         'global M1_MOCK\n[varargout{1:nargout}] = M1_MOCK.dispatch(''%s'',varargin{:});\nend\n'], ...
         names{k}, names{k});
@@ -28,6 +35,7 @@ cleanup = onCleanup(@() restore(oldPath, oldFolder));
 addpath(stubs, '-begin'); cd(project);
 global M1_MOCK %#ok<GVMIS> Shared by the isolated generated wrappers only.
 if strcmp(selection, 'm3'), run_m3_scenarios(project); return; end
+if strcmp(selection, 'm5'), run_m5_scenarios(project); return; end
 % Both acquisition scripts must work before calibration has ever run.
 assert(~isfile(fullfile(project, 'opto_patch.mat')));
 reset_mock('cycles'); execute_script('opto_50_cycles');
@@ -243,6 +251,7 @@ for scenario = {'numbered', 'numbered_mixed', 'numbered_abort', ...
 end
 fprintf('PASS: 7 M2 script scenarios, including mixed four-button responses, grace, missing onset and cleanup.\n');
 run_m3_scenarios(project);
+run_m5_scenarios(project);
 fprintf('No physical GUI/hardware validation.\n');
 end
 
@@ -324,12 +333,14 @@ end
 function output = execute_script(name)
 global M1_MOCK %#ok<GVMIS>
 previousSync = M1_MOCK.preferences.SkipSyncTests;
+previous3D = M1_MOCK.preferences.Enable3DGraphics;
 openFiles = fopen('all');
 output = evalc(name); % Execute the real script copy with its own local functions.
 assert(~contains(output, 'already-destroyed') && ~contains(output, 'onCleanup'' class destructor'), ...
     'A cleanup callback accessed an exiting workspace.');
 fprintf('%s', output);
 assert(M1_MOCK.preferences.SkipSyncTests == previousSync, 'SkipSyncTests was not restored.');
+assert(M1_MOCK.preferences.Enable3DGraphics == previous3D, 'OpenGL preference was not restored.');
 assert(isequal(fopen('all'), openFiles), 'A journal file was left open.');
 assert(M1_MOCK.invalidDraws == 0 && M1_MOCK.invalidSerialCloses == 0);
 assert(M1_MOCK.serialCloses == M1_MOCK.serialOpens && ~M1_MOCK.serialOpen);
@@ -370,7 +381,7 @@ M1_MOCK = struct('dispatch', @dispatch, 'scenario', scenario, 'time', 0, ...
     'digits', [], 'draftDigit', NaN, 'fixations', 0, 'textSize', 24, ...
     'draftPhase', '', 'invalidDraws', 0, 'invalidSerialCloses', 0, ...
     'serialOpens', 0, 'serialCloses', 0, ...
-    'preferences', struct('WindowShieldingLevel', 2000, 'SkipSyncTests', 0), ...
+    'preferences', struct('WindowShieldingLevel', 2000, 'SkipSyncTests', 0, 'Enable3DGraphics', 1), ...
     'screenGlobal', screenGlobal, 'windowGlobal', [], 'windowLocal', [], ...
     'windowMoved', false, 'backgroundPolls', 0, ...
     'flips', 0, 'onsets', 0, 'inputs', 0, 'commands', {{}}, ...
@@ -391,19 +402,67 @@ switch name
         else
             varargout = {builtin('which', varargin{:})};
         end
-    case {'PsychStartup','InitializePsychSound','KbReleaseWait','EyelinkUpdateDefaults','PsychEyelinkDispatchCallback'}
+    case {'PsychStartup','InitializePsychSound','KbReleaseWait','EyelinkUpdateDefaults'}
         return;
+    case 'InitializeMatlabOpenGL', M1_MOCK.preferences.Enable3DGraphics=0;
+    case 'PsychEyelinkDispatchCallback'
+        varargout={0};
+        if isfield(M1_MOCK.eye,'plannedBlocks')
+            M1_MOCK.eye.callbackPolls=M1_MOCK.eye.callbackPolls+1;
+            if strcmp(M1_MOCK.eye.scenario,'callback_error') && M1_MOCK.eye.calibrations==2
+                error('Injected callback failure');
+            end
+        end
+    case 'glPushAttrib', M1_MOCK.eye.glDepth=M1_MOCK.eye.glDepth+1;
+    case 'glScissor'
+        assert(isequal([varargin{:}],[0 0 150 150]));
+    case {'glEnable','glColorMask'}, return;
+    case 'glClearColor', assert(isequal([varargin{:}],[0 0 0 1]));
+    case 'glClear'
+        assert(varargin{1}==16384 && M1_MOCK.eye.glDepth==1);
+        M1_MOCK.draftWhite=false;
+    case 'glPopAttrib', M1_MOCK.eye.glDepth=M1_MOCK.eye.glDepth-1;
     case 'Eyelink'
         [varargout{1:nargout}] = eye_dispatch(varargin{:});
     case 'EyelinkInitDefaults'
-        varargout = {struct('window', varargin{1})};
+        varargout = {struct('window', varargin{1},'helptext','Official setup instructions')};
     case 'EyelinkDoTrackerSetup'
-        assert(M1_MOCK.eye.open && ~M1_MOCK.serialOpen && ~M1_MOCK.eye.recording);
+        if isfield(M1_MOCK.eye,'plannedBlocks')
+            e=M1_MOCK.eye; block=e.calibrations+1;
+            assert(e.open && ~e.recording && e.stops==block-1 && ~isempty(e.hook));
+            assert(M1_MOCK.serialOpen==(block>1) && ~M1_MOCK.white);
+            M1_MOCK.eye.calibrations=block; M1_MOCK.eye.accepted=false;
+            M1_MOCK.eye.calibrationTimes(end+1)=M1_MOCK.time;
+            M1_MOCK.syncSent=false;
+            if block>1
+                saved=load(fullfile(e.runFolder,'session.mat'));
+                assert(strcmp(saved.run.blocks(block-1).status,'COMPLETE'));
+                assert(sum(isfinite([saved.run.trials.stimulus_flip_ptb]))==(block-1)*10);
+                if strcmp(e.scenario,'boundaries')
+                    queue_event(M1_MOCK.time+0.25,sprintf('A P 4 %d',stamp(M1_MOCK.time+0.25)));
+                    queue_event(M1_MOCK.time+0.30,sprintf('A R 4 %d',stamp(M1_MOCK.time+0.30)));
+                    queue_event(M1_MOCK.time+0.32,sprintf('C P 1 %d',stamp(M1_MOCK.time+0.32)));
+                    queue_event(M1_MOCK.time+0.34,sprintf('C R 1 %d',stamp(M1_MOCK.time+0.34)));
+                end
+            end
+            Screen('FillRect',100,[255 255 255],[0 930 150 1080]); Screen('Flip',100);
+            assert(~M1_MOCK.white,'SDK calibration frame escaped the black patch mask');
+            for callback=1:40
+                WaitSecs(0.025); m5_setup_callback([2 0 0 0]);
+            end
+        else
+            assert(M1_MOCK.eye.open && ~M1_MOCK.serialOpen && ~M1_MOCK.eye.recording);
+        end
         result = 0;
-        if strcmp(M1_MOCK.eye.scenario, 'calibration_error'), result = -1; end
+        if strcmp(M1_MOCK.eye.scenario, 'calibration_error') && ...
+                (~isfield(M1_MOCK.eye,'plannedBlocks') || M1_MOCK.eye.calibrations==M1_MOCK.eye.failBlock)
+            result = -1;
+        end
         M1_MOCK.eye.setup = true; varargout = {result};
     case 'GetSecs'
-        assert(M1_MOCK.time < 100, 'Mock time limit exceeded.');
+        limit=100;
+        if isfield(M1_MOCK,'eye') && isfield(M1_MOCK.eye,'plannedBlocks'), limit=300; end
+        assert(M1_MOCK.time < limit, 'Mock time limit exceeded.');
         varargout = {M1_MOCK.time};
     case 'WaitSecs'
         M1_MOCK.time = M1_MOCK.time + varargin{end};
@@ -467,9 +526,23 @@ switch name
         end
         if isfield(M1_MOCK, 'eye') && M1_MOCK.eye.acceptPrompt
             keys(:) = false;
-            if strcmp(M1_MOCK.eye.scenario, 'calibration_cancel'), keys(1) = true;
-            else, keys(12) = true; M1_MOCK.eye.accepted = true; end
+            cancel=strcmp(M1_MOCK.eye.scenario, 'calibration_cancel');
+            if isfield(M1_MOCK.eye,'plannedBlocks'), cancel=cancel && M1_MOCK.eye.calibrations==M1_MOCK.eye.failBlock; end
+            if cancel, keys(1) = true;
+            else
+                keys(12) = true; M1_MOCK.eye.accepted = true;
+                if isfield(M1_MOCK.eye,'plannedBlocks')
+                    M1_MOCK.eye.acceptances=M1_MOCK.eye.acceptances+1;
+                    M1_MOCK.eye.acceptedTimes(end+1)=M1_MOCK.time;
+                end
+            end
             M1_MOCK.eye.acceptPrompt = false;
+        elseif isfield(M1_MOCK,'eye') && isfield(M1_MOCK.eye,'plannedBlocks')
+            e=M1_MOCK.eye;
+            if ismember(e.scenario,{'abort','abort_transfer'}) && M1_MOCK.onsets>=(e.failBlock-1)*10+2, keys(1)=true; end
+            if strcmp(e.scenario,'sync_abort') && numel(e.syncTimes)>=e.failBlock && M1_MOCK.time>e.syncTimes(end)+0.15
+                keys(1)=true;
+            end
         end
         varargout = {any(keys), M1_MOCK.time, keys};
     case 'GetMouse'
@@ -501,6 +574,9 @@ switch name
     case 'DrawFormattedText'
         if isfield(M1_MOCK, 'eye') && contains(varargin{2}, 'Press Y')
             M1_MOCK.eye.acceptPrompt = true; return;
+        end
+        if isfield(M1_MOCK,'eye') && isfield(M1_MOCK.eye,'plannedBlocks') && contains(varargin{2},'EyeLink calibration')
+            assert(contains(varargin{2},sprintf('Block %d/4',M1_MOCK.eye.calibrations+1))); return;
         end
         if startsWith(s, 'numbered') && numel(varargin{2}) == 1
             assert(ismember(varargin{2}, '1234') && isequal(varargin{5}, [0 0 0]));
@@ -563,11 +639,15 @@ switch name
                 M1_MOCK.draftRect = [];
                 if numel(varargin) == 3
                     M1_MOCK.draftPhase = 'blank'; M1_MOCK.draftDigit = NaN;
+                    if isfield(M1_MOCK,'eye') && isfield(M1_MOCK.eye,'plannedBlocks'), M1_MOCK.draftSync=false; end
                 end
                 if numel(varargin) >= 4, M1_MOCK.draftRect = varargin{4}; end
             case 'DrawLines', M1_MOCK.draftPhase = 'fixation';
             case 'FillOval', M1_MOCK.draftPhase = 'stimulus';
             case 'Flip'
+                if isfield(M1_MOCK,'eye') && isfield(M1_MOCK.eye,'plannedBlocks') && ~isempty(M1_MOCK.eye.hook)
+                    eval(M1_MOCK.eye.hook);
+                end
                 if ~M1_MOCK.displayOpen
                     M1_MOCK.invalidDraws = M1_MOCK.invalidDraws + 1;
                     error('Invalid window in Flip.');
@@ -584,7 +664,9 @@ switch name
                     'phase', M1_MOCK.draftPhase);
                 if startsWith(s, 'numbered') && strcmp(M1_MOCK.draftPhase, 'fixation')
                     M1_MOCK.fixations = M1_MOCK.fixations + 1;
-                    if strcmp(s, 'numbered_mixed') && M1_MOCK.fixations == 6
+                    fixation=M1_MOCK.fixations;
+                    if isfield(M1_MOCK,'eye') && isfield(M1_MOCK.eye,'plannedBlocks'), fixation=mod(fixation-1,10)+1; end
+                    if strcmp(s, 'numbered_mixed') && fixation == 6
                         queue_event(vbl + 0.204, sprintf('A P 2 %d', stamp(vbl + 0.2)));
                         queue_event(vbl + 3.204, sprintf('A R 2 %d', stamp(vbl + 3.2)));
                     end
@@ -598,17 +680,24 @@ switch name
                     if M1_MOCK.draftWhite
                         edge = 'P'; M1_MOCK.onsets = M1_MOCK.onsets + 1;
                     end
+                    opticalTrial=M1_MOCK.onsets;
+                    if isfield(M1_MOCK,'eye') && isfield(M1_MOCK.eye,'plannedBlocks'), opticalTrial=mod(opticalTrial-1,10)+1; end
                     missing = (strcmp(s, 'task_missing_onset') && M1_MOCK.onsets == 3 || ...
-                        strcmp(s, 'numbered_mixed') && M1_MOCK.onsets == 7) && edge == 'P';
-                    chatter = strcmp(s, 'numbered_mixed') && M1_MOCK.onsets == 8;
+                        strcmp(s, 'numbered_mixed') && opticalTrial == 7) && edge == 'P';
+                    chatter = strcmp(s, 'numbered_mixed') && opticalTrial == 8;
                     if strcmp(s, 'numbered_snapshot') && M1_MOCK.onsets == 1 && edge == 'P'
                         queue_event(vbl + 0.001, sprintf('C P 1 %d', stamp(vbl)));
                         queue_event(vbl + 0.002, sprintf('C R 1 %d', stamp(vbl)));
                     end
                     delayedOff = strcmp(s, 'numbered_snapshot') && M1_MOCK.onsets == 1 && edge == 'R';
+                    if isfield(M1_MOCK,'eye') && strcmp(M1_MOCK.eye.scenario,'boundaries') && opticalTrial==10 && edge=='R'
+                        delayedOff=true;
+                    end
                     if delayedOff
                         M1_MOCK.queue(end+1) = struct('ready', vbl+0.004, 'bytes', uint8('C R 1 '));
-                        queue_event(vbl+0.55, sprintf('%d', stamp(vbl)));
+                        delay=0.55;
+                        if isfield(M1_MOCK,'eye') && strcmp(M1_MOCK.eye.scenario,'boundaries'), delay=0.65; end
+                        queue_event(vbl+delay, sprintf('%d', stamp(vbl)));
                     end
                     if ~strcmp(s, 'cycles_silent') && ~missing && ~delayedOff
                         if (endsWith(s, '_onset_chatter') || contains(s, '_both_chatter')) && edge == 'P'
@@ -632,14 +721,22 @@ switch name
                         queue_event(vbl + 0.904, sprintf('A R 1 %d', stamp(vbl + 0.9)));
                     end
                     if startsWith(s, 'numbered') && edge == 'P'
+                        if isfield(M1_MOCK,'eye') && strcmp(M1_MOCK.eye.scenario,'boundaries') && ...
+                                M1_MOCK.onsets>10 && opticalTrial==1
+                            queue_event(vbl+0.001,sprintf('A P 3 %d',stamp(vbl)-5000));
+                            queue_event(vbl+0.002,sprintf('A R 3 %d',stamp(vbl)-4950));
+                        end
                         queue_numbered_response(s, M1_MOCK.onsets, vbl);
                     end
                 end
                 M1_MOCK.white = M1_MOCK.draftWhite;
                 if M1_MOCK.draftSync && ~M1_MOCK.syncSent
                     if isfield(M1_MOCK, 'eye')
-                        assert(M1_MOCK.eye.recording && M1_MOCK.eye.starts == 1);
+                        expected=1;
+                        if isfield(M1_MOCK.eye,'plannedBlocks'), expected=M1_MOCK.eye.calibrations; end
+                        assert(M1_MOCK.eye.recording && M1_MOCK.eye.starts == expected);
                         M1_MOCK.eye.syncTime = vbl;
+                        if isfield(M1_MOCK.eye,'plannedBlocks'), M1_MOCK.eye.syncTimes(end+1)=vbl; end
                     end
                     M1_MOCK.syncSent = true;
                     queue_event(vbl + 0.104, sprintf('A P 1 %d', stamp(vbl + 0.1)));
@@ -647,6 +744,11 @@ switch name
                 end
                 varargout = {vbl, vbl, M1_MOCK.time, -0.001};
             case 'CloseAll', M1_MOCK.displayOpen = false;
+            case 'HookFunction'
+                operation=varargin{3};
+                if strcmp(operation,'AppendMFunction'), M1_MOCK.eye.hook=varargin{6}; end
+                if strcmp(operation,'Query'), varargout={-double(isempty(M1_MOCK.eye.hook))}; end
+                if strcmp(operation,'Remove'), M1_MOCK.eye.hook=''; end
         end
     case 'IOPort'
         switch varargin{1}
@@ -685,6 +787,9 @@ switch name
                     err = 'Injected serial disconnection';
                 elseif strcmp(s, 'numbered_disconnect') && M1_MOCK.time > 2.1
                     err = 'Injected serial disconnection';
+                elseif isfield(M1_MOCK,'eye') && strcmp(M1_MOCK.eye.scenario,'serial_disconnect') && ...
+                        M1_MOCK.onsets>=(M1_MOCK.eye.failBlock-1)*10+2
+                    err='Injected serial disconnection';
                 elseif ~isempty(M1_MOCK.queue) && M1_MOCK.queue(1).ready <= M1_MOCK.time
                     n = min(3, numel(M1_MOCK.queue(1).bytes));
                     bytes = M1_MOCK.queue(1).bytes(1:n);
@@ -714,6 +819,8 @@ M1_MOCK.queue(end + 1) = struct('ready', ready, 'bytes', uint8(sprintf('%s\r\n',
 end
 
 function queue_numbered_response(scenario, trial, onset)
+global M1_MOCK %#ok<GVMIS>
+if isfield(M1_MOCK,'eye') && isfield(M1_MOCK.eye,'plannedBlocks'), trial=mod(trial-1,10)+1; end
 targets = [1 2 3 4 1 2 3 4 1 2]; button = targets(trial);
 hardwareDelay = 0.2; receiptDelay = 0.204;
 if strcmp(scenario, 'numbered_mixed')
@@ -946,6 +1053,154 @@ if ~isempty(fields) && e.opens==0
 end
 end
 
+function run_m5_scenarios(project)
+global M1_MOCK %#ok<GVMIS>
+cases={'normal',0;'mixed',0;'boundaries',0; ...
+    'calibration_cancel',1;'calibration_cancel',2;'calibration_cancel',4;'calibration_error',3; ...
+    'callback_error',2;'abort',2;'sync_abort',3;'tracker_disconnect',3; ...
+    'recording_error',4;'start_error',2;'stop_error',3;'slow_message',2; ...
+    'serial_disconnect',2;'abort_transfer',3;'transfer_interrupted',0;'transfer_mismatch',0;'close_error',0};
+for c=1:size(cases,1)
+    scenario='numbered'; if strcmp(cases{c,1},'mixed'), scenario='numbered_mixed'; end
+    reset_mock(scenario); M1_MOCK.preferences.SkipSyncTests=2;
+    M1_MOCK.eye=struct('scenario',cases{c,1},'failBlock',cases{c,2},'plannedBlocks',4, ...
+        'connected',false,'recording',false,'open',false,'setup',false, ...
+        'acceptPrompt',false,'accepted',false,'starts',0,'stops',0,'closes',0, ...
+        'shutdowns',0,'opens',0,'initializes',0,'receives',0, ...
+        'startTime',NaN,'syncTime',NaN,'messages',{{}},'messageTimes',[], ...
+        'operations',{{}},'proposed','','queryCounts',struct,'diagnosticPrompts',0, ...
+        'calibrations',0,'acceptances',0,'startTimes',[],'stopTimes',[], ...
+        'syncTimes',[],'calibrationTimes',[],'acceptedTimes',[], ...
+        'hook','','glDepth',0,'callbackPolls',0);
+    output=execute_script('numbered_circle_eyelink_4blocks');
+    r=latest_run(project,'numbered_circle_eyelink_4blocks'); e=M1_MOCK.eye;
+    assert(e.initializes==1 && e.opens==1 && e.closes==1 && e.shutdowns==1);
+    assert(e.starts==e.stops && e.starts<=4 && isempty(e.hook) && e.glDepth==0);
+    nonStim=~strcmp({M1_MOCK.history.phase},'stimulus');
+    assert(~any([M1_MOCK.history(nonStim).white]));
+    expectedSerial=double(e.acceptances>0);
+    assert(M1_MOCK.serialOpens==expectedSerial && M1_MOCK.serialCloses==expectedSerial);
+    if expectedSerial, assert(isequal(M1_MOCK.commands,{'X',sprintf('MOD5\r\n')}));
+    else, assert(isempty(M1_MOCK.commands)); end
+    assert(r.eyelink.finished && ~r.eyelink.connection_owned && ~r.eyelink.segment_active);
+    assert(numel(r.trials)==40 && numel(r.blocks)==4 && numel(r.calibrations)==4 && numel(r.sync)==4);
+    assert(isequal([r.trials.global_trial],1:40));
+    assert(isequal([r.trials.block_number],repelem(1:4,10)));
+    assert(isequal([r.trials.trial_in_block],repmat(1:10,1,4)));
+    assert(isequal([r.trials.displayed_digit],repmat([1 2 3 4 1 2 3 4 1 2],1,4)));
+    assert(~isfield(r.raw_messages,'optical_glitch'));
+    if ~isempty(r.raw_messages)
+        assert(isequaln([r.raw_messages.tpad_ms],[r.messages.tpad_ms]));
+        assert(isequal({r.raw_messages.raw_hex},{r.messages.raw_hex}));
+        assert(issorted([r.messages.sequence]) && numel(unique([r.messages.sequence]))==numel(r.messages));
+    else
+        assert(isempty(r.messages));
+    end
+    assert(~any(ismember([r.trials.button_press_sequence],[r.sync.press_sequence])));
+    saved=load(fullfile(r.folder,'eyelink_recovery.mat'));
+    assert(isequaln(saved.eyelink.calibrations,r.calibrations));
+    assert(sum([r.calibrations.accepted])==e.acceptances);
+    assert(~any([r.calibrations.machine_verified]));
+    accepted=r.calibrations([r.calibrations.accepted]);
+    assert(all([accepted.new_calibration_operator_confirmed] & [accepted.new_validation_operator_confirmed]));
+    assert(all(strcmp({accepted.verification},'OPERATOR_CONFIRMED')));
+    assert(all(e.calibrationTimes(1:e.acceptances)<=e.acceptedTimes));
+    for name={'blocks.csv','block_summaries.csv','calibrations.csv','sync.csv','trials.csv'}
+        assert(isfile(fullfile(r.folder,name{1})));
+    end
+    if expectedSerial, assert(isfile(fullfile(r.folder,'raw_rx.bin'))); end
+    on=r.flips(strcmp({r.flips.phase},'stimulus_on'));
+    off=r.flips(strcmp({r.flips.phase},'stimulus_off'));
+    fixation=r.flips(strcmp({r.flips.phase},'fixation'));
+    assert(all(abs([on.onset_ptb]-[fixation(1:numel(on)).onset_ptb]-1.0)<1e-6));
+    ordinary=off([off.expected_edge]=='R');
+    assert(all(abs([ordinary.onset_ptb]-[on(1:numel(ordinary)).onset_ptb]-0.5)<1e-6));
+    presented=isfinite([r.trials.stimulus_flip_ptb]);
+    assert(all(abs([r.trials(presented).response_deadline_ptb]-[r.trials(presented).stimulus_flip_ptb]-1.5)<1e-6));
+    for b=1:4
+        ids=(b-1)*10+(1:10); closed=isfinite([r.trials(ids).iti_start_ptb]);
+        localFix=fixation([fixation.trial]>(b-1)*10 & [fixation.trial]<=b*10);
+        for j=2:numel(localFix)
+            if closed(j-1), assert(localFix(j).onset_ptb-r.trials(ids(j-1)).iti_start_ptb>=0.5-1e-8); end
+        end
+        if b<=e.starts
+            assert(r.eyelink.segments(b).start_attempted && r.eyelink.segments(b).stop_attempted);
+        end
+        if b<e.calibrations
+            assert(e.stopTimes(b)<e.calibrationTimes(b+1));
+        end
+    end
+    idText=e.messages(startsWith(e.messages,'TRIALID '));
+    ids=cellfun(@(text)sscanf(text,'TRIALID %d',1),idText);
+    assert(isequal(ids(:)',1:numel(ids)) && numel(ids)<=40);
+    assert(sum(startsWith(e.messages,'SESSION_START '))==double(e.starts>0));
+    assert(sum(startsWith(e.messages,'SESSION_END '))==double(e.starts>0));
+    complete=ismember(e.scenario,{'normal','mixed','boundaries'});
+    if complete
+        assert(strcmp(r.status,'complete') && r.summary.presented_trials==40 && r.summary.sync_count==4);
+        assert(e.calibrations==4 && e.acceptances==4 && e.starts==4 && e.receives==1);
+        assert(r.eyelink.transfer_verified && all(strcmp({r.blocks.status},'COMPLETE')));
+        assert(numel(ids)==40 && sum(startsWith(e.messages,'TRIAL_RESULT '))==40);
+        assert(sum(startsWith(e.messages,'BLOCK_START '))==4 && sum(startsWith(e.messages,'BLOCK_END '))==4);
+        assert(sum(startsWith(e.messages,'TPAD_SYNC block='))==4);
+        beginnings=find(startsWith(e.messages,'TRIALID ')); endings=find(startsWith(e.messages,'TRIAL_RESULT '));
+        assert(all(endings>beginnings) && all(endings(1:39)<beginnings(2:40)));
+        for t=1:40
+            text=e.messages(beginnings(t):endings(t));
+            assert(any(strcmp(text,sprintf('!V TRIAL_VAR block_number %d',ceil(t/10)))));
+            assert(any(strcmp(text,sprintf('!V TRIAL_VAR trial_in_block %d',mod(t-1,10)+1))));
+            assert(any(strcmp(text,sprintf('!V TRIAL_VAR global_trial %d',t))));
+        end
+        for b=1:4
+            assert(e.acceptedTimes(b)<e.startTimes(b) && e.startTimes(b)+0.1<=e.syncTimes(b));
+            assert(e.messageTimes(beginnings((b-1)*10+1))<e.startTimes(b));
+            assert(r.sync(b).release_tpad_ms>r.sync(b).press_tpad_ms && r.sync(b).block_number==b);
+            assert(contains(r.sync(b).eyelink_marker,sprintf('release_sequence=%d',r.sync(b).release_sequence)));
+        end
+        if strcmp(e.scenario,'mixed')
+            assert(r.summary.correct==20 && r.summary.incorrect==4 && r.summary.timeouts==16);
+            assert(r.summary.valid_optical_onsets==36 && r.summary.optical_artifact_pairs==8);
+            assert(r.summary.mean_correct_rt_ms==522.5 && r.summary.mean_all_response_rt_ms==598);
+            assert(all([r.trials(9:10:39).serial_grace_used]));
+        else
+            assert(r.summary.correct==40 && r.summary.valid_optical_pulses==40);
+            assert(all([r.trials.rt_ms]==200));
+        end
+        if strcmp(e.scenario,'boundaries')
+            between=r.messages([r.messages.acquisition_block]==0 & strcmp({r.messages.channel},'C'));
+            assert(~isempty(between) && all([between.trial]==0));
+            assert(any([r.messages.out_of_order]));
+            assert(all(isfinite([r.trials.optical_off_ms])));
+        end
+    else
+        if ismember(e.scenario,{'calibration_cancel','abort','abort_transfer','sync_abort'})
+            assert(strcmp(r.status,'aborted'));
+        else
+            assert(strcmp(r.status,'error'));
+        end
+        if e.failBlock>0
+            assert(all(strcmp({r.blocks(1:e.failBlock-1).status},'COMPLETE')));
+            assert(~strcmp(r.blocks(e.failBlock).status,'COMPLETE'));
+            assert(all(strcmp({r.blocks(e.failBlock+1:end).status},'NOT_PRESENTED')));
+            assert(all(strcmp({r.trials(e.failBlock*10+1:end).outcome},'NOT_PRESENTED')));
+        end
+        if ismember(e.scenario,{'calibration_cancel','calibration_error','callback_error','start_error','sync_abort'})
+            assert(r.summary.presented_trials==(e.failBlock-1)*10);
+        end
+        if ismember(e.scenario,{'transfer_interrupted','abort_transfer'})
+            assert(~r.eyelink.transfer_verified && strcmp(char(read_bytes(r.eyelink.local_edf))','PARTIAL'));
+            if strcmp(e.scenario,'abort_transfer')
+                assert(strcmp(r.task_status,'aborted') && r.summary.presented_trials==22);
+            else
+                assert(strcmp(r.task_status,'complete') && r.summary.presented_trials==40 && numel(r.raw_messages)>=170);
+            end
+        end
+    end
+    assert_filter_queries(r,e,output);
+end
+fprintf('PASS: %d M5 four-block scenarios; synthetic hardware only.\n',size(cases,1));
+end
+
 function varargout = eye_dispatch(operation, varargin)
 global M1_MOCK %#ok<GVMIS>
 e = M1_MOCK.eye; scenario = e.scenario;
@@ -1029,6 +1284,7 @@ switch operation
             saved=load(fullfile(files(k).folder,files(k).name));
             if strcmp(saved.eyelink.host_basename,e.proposed)
                 confirmed=saved.eyelink.filename_confirmed;
+                if isfield(e,'plannedBlocks'), M1_MOCK.eye.runFolder=files(k).folder; end
                 if strcmp(scenario,'destination_exists')
                     fid=fopen(saved.eyelink.local_edf,'wb'); fwrite(fid,'KEEP'); fclose(fid);
                 end
@@ -1045,16 +1301,32 @@ switch operation
     case 'SetOfflineMode'
         M1_MOCK.eye.recording=false;
     case 'StartRecording'
-        assert(e.open && e.accepted && e.starts==0);
+        block=1;
+        if isfield(e,'plannedBlocks')
+            block=e.calibrations;
+            assert(e.acceptances==block && numel(e.acceptedTimes)==block && isempty(e.hook));
+            M1_MOCK.eye.startTimes(end+1)=M1_MOCK.time;
+        end
+        assert(e.open && e.accepted && e.starts==block-1);
         assert(M1_MOCK.serialOpen && M1_MOCK.mode5);
         assert(isequal([varargin{:}],[1 1 0 0]));
-        assert(strcmp(e.messages{end},'TRIALID 1'));
+        assert(strcmp(e.messages{end},sprintf('TRIALID %d',(block-1)*10+1)));
         M1_MOCK.eye.starts=e.starts+1; M1_MOCK.eye.recording=true;
         M1_MOCK.eye.startTime=M1_MOCK.time;
-        varargout={double(strcmp(scenario,'start_error'))};
+        failed=strcmp(scenario,'start_error');
+        if isfield(e,'plannedBlocks'), failed=failed && block==e.failBlock; end
+        varargout={double(failed)};
     case 'CheckRecording'
         value=0;
         if strcmp(scenario,'recording_error') && M1_MOCK.onsets>=2, value=3; end
+        if isfield(e,'plannedBlocks')
+            value=0;
+            if ismember(scenario,{'recording_error','tracker_disconnect'}) && ...
+                    M1_MOCK.onsets>=(e.failBlock-1)*10+2
+                value=3;
+                if strcmp(scenario,'tracker_disconnect'), M1_MOCK.eye.connected=false; end
+            end
+        end
         varargout={value};
     case 'Message'
         assert(strcmp(varargin{1},'%s') && e.open);
@@ -1062,16 +1334,23 @@ switch operation
         if strcmp(scenario,'message_error') && startsWith(text,'STIMULUS_ONSET ')
             varargout={1}; return;
         end
-        if strcmp(scenario,'slow_message') && startsWith(text,'STIMULUS_ONSET ')
+        slow=strcmp(scenario,'slow_message');
+        if isfield(e,'plannedBlocks'), slow=slow && e.calibrations==e.failBlock; end
+        if slow && startsWith(text,'STIMULUS_ONSET ')
             M1_MOCK.time=M1_MOCK.time+0.3;
         end
         M1_MOCK.eye.messages{end+1}=text;
         M1_MOCK.eye.messageTimes(end+1)=M1_MOCK.time;
         varargout={0};
     case 'StopRecording'
-        assert(e.starts==1 && e.stops==0);
+        assert(e.starts==e.stops+1);
         M1_MOCK.eye.stops=e.stops+1;
-        if strcmp(scenario,'stop_error'), error('Injected EyeLink stop failure'); end
+        failed=strcmp(scenario,'stop_error');
+        if isfield(e,'plannedBlocks')
+            failed=failed && e.calibrations==e.failBlock;
+            M1_MOCK.eye.stopTimes(end+1)=M1_MOCK.time;
+        end
+        if failed, error('Injected EyeLink stop failure'); end
         M1_MOCK.eye.recording=false;
     case 'CloseFile'
         assert(e.open && e.closes==0);
@@ -1083,7 +1362,7 @@ switch operation
         parent=fileparts(varargin{2}); saved=load(fullfile(parent,'session.mat'));
         assert(isfield(saved.run,'trials'),'tPAD data must be saved before transfer');
         fid=fopen(varargin{2},'wb'); assert(fid>=0);
-        if strcmp(scenario,'transfer_interrupted')
+        if ismember(scenario,{'transfer_interrupted','abort_transfer'})
             fwrite(fid,'PARTIAL'); result=-1;
         else
             fwrite(fid,uint8(1:16)); result=16;

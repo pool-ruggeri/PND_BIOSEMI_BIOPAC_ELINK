@@ -282,3 +282,41 @@ No further PO architectural decision is required to implement this milestone.
   recordings locally and keep EDF/ASC, tPAD logs and other experimental data
   excluded from Git. Change only README, handoff and decisions; no MATLAB source
   or hardware-setting changes.
+
+## M5 four blocks and fresh EyeLink setup
+
+- Add `numbered_circle_eyelink_4blocks.m` with four copies of M3's ten-trial
+  target sequence, timing, grace, patch and physical SYNC. Extract one shared
+  controller so the original one-block command stays independently runnable
+  without a second acquisition implementation. Existing M1/M2 helpers stay intact.
+- Keep one connection/EDF lifecycle and four explicit recording segment states.
+  Stop and checkpoint each block before the next fresh calibration/validation.
+  Preserve read-only filter checks, unused-name confirmation, file ownership,
+  exactly-once partial-start cleanup and conservative transfer/recovery.
+- A fresh standard SDK setup and Y quality gate are mandatory per block.
+  Require the operator to confirm BOTH a newly performed calibration and newly
+  performed validation. Store four separate records with OPERATOR_CONFIRMED and
+  machine_verified=false; a last setup/result code cannot certify both. Rejecting
+  or cancelling ends the run before the next recording.
+- Keep the patch black during setup/breaks with a temporary calibration-only
+  pre-swap mask; delegate standard SDK drawing and keyboard and poll the existing
+  reader through a thin callback. Remove the mask before trials. No Host
+  geometry, filter/rate, clock, SDK, serial or TTL changes are authorized.
+- Exactly 40 global TRIALIDs, each block's first ID before recording, and four
+  separate B1 press/release SYNCs in those first-trial prestimulus intervals.
+  Add block/local/global variables and BLOCK_START/END/TPAD_SYNC markers, with
+  whole-session SESSION_START/END. Keep physical INPUT independent from MSG.
+- Match optics within original block receipt contexts, retain raw data and all
+  timestamps, exclude calibration/break presses from responses and preserve
+  global release pairing. Export global/local IDs, per-block/overall summaries,
+  calibration and segment recovery state in one session folder. Partial and
+  unpresented blocks stay explicit; transfer failure cannot become COMPLETE.
+- M5 automated tests and Code Analyzer provide software evidence only. The PO
+  must qualify the four-calibration/four-segment EDF/ASC, 40 Data Viewer trials,
+  four SYNCs, INPUT/MSG, RTs, calibration-target/sensor behavior and recovery on
+  physical hardware. M3/M4 evidence does not establish physical M5 acceptance.
+- Software validation: 20 focused M5 scenarios passed, existing M1/M2/M3
+  regressions and three historical recovery replays passed, and Code Analyzer
+  reported zero findings across 30 MATLAB files. Preserve known missed-flip
+  failures in historical full checks. Test evidence is recorded in the handoff;
+  no physical M5 acquisition or installed SDK/hardware changes were performed.

@@ -1,4 +1,4 @@
-# MATLAB / Psychtoolbox / BBTK tPAD - M1 through M4
+# MATLAB / Psychtoolbox / BBTK tPAD - M1 through M5
 
 Canonical repository: [pool-ruggeri/PND_BIOSEMI_BIOPAC_ELINK](https://github.com/pool-ruggeri/PND_BIOSEMI_BIOPAC_ELINK)
 (private).
@@ -11,6 +11,9 @@ the PO reports a successful ten-trial session and M4 EDF/physical INPUT evidence
 on 2026-10-20. Gaze quality, Data Viewer acceptance, display synchronization,
 electrical fan-out and long-duration stability remain unqualified. Hardware
 times come from received Mode 5 messages.
+M5 adds `numbered_circle_eyelink_4blocks.m`: four ten-trial blocks with fresh
+operator-confirmed calibration/validation and physical B1 SYNC before each.
+M5 awaits physical laboratory acceptance; the M3/M4 evidence below is separate.
 
 PO report (2026-10-19): M1 recovered 50 valid optical ON/OFF cycles with short
 artifacts classified. The M2 physical ten-trial run recorded 9 correct,
@@ -28,7 +31,7 @@ executable additionally requires the existing EyeLink SDK and a real Host.
 Open MATLAB in this repository. Ensure `which Screen` and `which IOPort` resolve
 to the existing Psychtoolbox installation. Set `comPort = 'COM5'` at the top of
 `opto_50_cycles.m`, `simple_task.m`, `numbered_circle_task.m`, and
-`numbered_circle_eyelink.m` to the tPAD port shown in Windows
+`numbered_circle_eyelink.m` and `numbered_circle_eyelink_4blocks.m` to the tPAD port shown in Windows
 Device Manager. COM5 is a starting value from the optional Python reference,
 not a detected port. Close other applications using that port before acquisition.
 
@@ -302,6 +305,90 @@ use these checks for later runs and the remaining qualifications.
 Detailed evidence and limitations: [M3 audit](docs/EYELINK_M3_TECHNICAL_AUDIT.md)
 and [handoff](docs/PROJECT_HANDOFF.md).
 
+## M5 four blocks with recalibration
+
+Launch from the project folder:
+
+```matlab
+numbered_circle_eyelink_4blocks
+```
+
+Set its `comPort` first. The original `numbered_circle_eyelink` remains an
+independent ten-trial command. Both launchers share `m3_run_circles.m`; the
+existing serial reader, optical classifier, response/RT helpers and stimulus
+drawing remain shared. M5 uses exactly **4 blocks of 10 trials**, each with
+`[1 2 3 4 1 2 3 4 1 2]`, 1000 ms fixation, 500 ms stimulus, 1500 ms response
+deadline including the stimulus, 100 ms serial grace and 500 ms ITI.
+The bottom-left 150 x 150 patch and SkipSyncTests=1 are unchanged.
+
+Operator workflow:
+
+1. Confirm the read-only Host filters and unused proposed EDF filename, using
+   the existing M3 safeguards. One connection and one Host EDF are opened.
+2. For **each** displayed block/calibration number, perform a **new calibration
+   (C) AND new validation (V)** in the standard EyeLink setup. Review both on the
+   Host. Press Y only to confirm both were newly performed for this block and
+   their quality is acceptable. ESC rejects/cancels and ends the session safely.
+   Metadata explicitly records `OPERATOR_CONFIRMED`, `machine_verified=false`,
+   and separate new-calibration/new-validation confirmations. The API's last
+   setup/result alone cannot establish that both procedures were new.
+3. Recording starts before that block's synchronization screen. Press and
+   release physical B1 once, then complete ten responses. Each block needs its
+   own complete SYNC pair; all four SYNC presses are excluded from responses.
+4. After the ten trials and fixed ITIs, a polled 100 ms event tail precedes
+   StopRecording. M5 checkpoints data, then starts the next setup while the EDF
+   stays open. After block 4, close/copy the EDF and shut down once.
+
+Expected EDF: **one file containing four recording blocks/segments**, separated
+by calibration periods. The lifecycle is initialize/open once, then four times
+setup + explicit acceptance -> first TRIALID -> StartRecording -> SYNC + ten
+trials -> StopRecording, followed by one close/verified transfer/shutdown.
+There are exactly `TRIALID 1` through `TRIALID 40`; each block's first identity
+(1, 11, 21, 31) precedes its recording start. Its SYNC interval is that trial's
+prestimulus portion. Calibration and SYNC create no extra Data Viewer trials.
+Existing onset/offset/response/snapshot/result conventions remain. New markers
+are `BLOCK_START block=N`, `TPAD_SYNC block=N` with both original press/release
+times and sequences, and `BLOCK_END block=N`. Trial variables include
+`block_number`, `trial_in_block`, `global_trial`. SESSION_START/SESSION_END delimit
+the whole session. BLOCK_END and final SESSION_END can be submitted after a
+segment stops while the EDF is open; they are Ethernet MSG, separate from
+physical INPUT. Final MATLAB RTs remain authoritative over online snapshots.
+
+One `data/numbered_circle_eyelink_4blocks_<date>_<token>/` folder contains all raw
+and classified M3 exports plus `blocks.csv` (boundaries/status),
+`block_summaries.csv`, `calibrations.csv` (four accepted/failed/unattempted
+records) and `sync.csv` (four block-associated pairs/placeholders).
+`trials.csv` and classified messages/Flips include global and local identifiers.
+`session.mat` and `eyelink_recovery.mat` retain calibration and per-segment
+start/stop attempts, original timestamps and failures. Successful blocks are
+checkpointed before the next setup. Interrupted blocks are ERROR/ABORTED;
+unstarted blocks are NOT_PRESENTED. A failed EDF transfer retains tPAD results,
+the Host original and any partial local EDF, and cannot report COMPLETE.
+
+The existing reader stays open once and is polled through the standard setup
+callback. A calibration-only pre-swap OpenGL mask keeps the sensor patch black
+during SDK drawing, and is removed before trials. No Host calibration geometry,
+filters, sampling rate, clocks, TTL settings or SDK installation are changed.
+Block receipt intervals isolate optical matching; break/setup presses retain
+explicit context, and release pairing still spans boundaries. A late fragment
+uses its original first-byte receipt context, preserving its correct block.
+
+Offline tests exercise M5 via `run_m5_tests` (also in `run_script_smoke_tests`).
+All **20 focused M5 scenarios passed**, including first-block rejection with no
+acquisition and partial-session transfer failure. Existing M1/M2/M3 regressions
+and three historical pulse-recovery replays passed. Code Analyzer reported
+**zero findings across 30 MATLAB source/test files**. Graphics, SDK and serial
+are mocked in these tests; historical missed-flip failures remain preserved.
+**M5 is not physically validated.** The PO must run all four fresh calibration/
+validation gates, inspect sensor blackness/target visibility and gaze quality,
+and convert a real EDF/ASC to verify four recording segments, 40 trial IDs,
+block variables, four SYNC pairs, independent INPUT/MSG and hardware RTs.
+Check Data Viewer import and abort/transfer recovery on the installed stack.
+Display synchronization, electrical fan-out and long-duration stability remain
+pending. The [SR Research demos](https://psychtoolbox.org/docs/SR-ResearchDemos)
+describe block recording within one EDF; the installed SimplePicture demo
+provides the offline-mode, 100 ms pre/tail and post-stop messaging references.
+
 ## Serial, timing, and TTL
 
 The reader uses IOPort at 115200 baud, 8N1, with no flow control and explicitly
@@ -419,6 +506,7 @@ run_offline_tests
 run_optical_filter_tests
 run_numbered_circle_tests
 run_eyelink_tests % Focused M3; also included in the full script suite below.
+run_m5_tests      % Focused four-block M5, with isolated hardware/OpenGL mocks.
 run_script_smoke_tests
 run_lab_replay
 ```

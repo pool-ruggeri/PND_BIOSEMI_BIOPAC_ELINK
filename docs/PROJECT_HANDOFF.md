@@ -1,10 +1,99 @@
-# M1 / M2 / M3 / M4 project handoff
+# M1 / M2 / M3 / M4 / M5 project handoff
 
 Delivery date: 2026-10-15; updated 2026-10-20 (Europe/Zurich). Status: M1/M2
 physical task tests and M3/M4 recording/INPUT evidence reported by the PO;
 gaze quality, Data Viewer acceptance, display synchronization, electrical fan-out
 and long-duration stability remain unqualified. Roles: PO = user;
 TL = ChatGPT; implementation = Codex.
+M5 software is implemented and offline-tested; physical M5 acceptance is pending.
+
+## M5 four-block implementation
+
+New command: `numbered_circle_eyelink_4blocks` (edit its `comPort` as usual).
+The original single-block launcher remains runnable and uses the same extracted
+`m3_run_circles.m` controller. All earlier serial, parsing, optical, response/RT,
+display/patch and logging helpers remain unchanged. Only `m3_eyelink.m` gains
+per-block calibration and per-segment lifecycle state; its default remains M3.
+
+Exactly four copies of M3's ten targets/timing/grace/appearance execute in one
+session folder. One connection and one unused-name-confirmed EDF stay open
+through four distinct standard setup calls. Each block displays its number,
+resets acceptance, requires the operator to perform NEW C and V and explicitly
+confirm both and quality with Y. The SDK last result is logged as evidence of
+the last result only. Four records identify accepted/rejected/error/unattempted
+setups, operator confirmations, timestamps and `machine_verified=false`.
+No automatic acceptance or calibration reuse is implemented.
+
+Each block's first global TRIALID (1/11/21/31) precedes its recording start;
+100 ms polled preroll precedes B1 SYNC. Four physical press/release pairs retain
+original tPAD times/sequences and block/first-global-trial association. None
+becomes a behavioral response. Global trial IDs 1..40 remain unique; block/local
+IDs and response snapshots are scoped within each Data Viewer trial. SESSION
+markers delimit the session, BLOCK_START/END delimit blocks, and TPAD_SYNC
+includes both edges. Post-stop MSGs are permitted while the EDF remains open;
+physical INPUT events are independent of these Ethernet messages.
+
+After each block's unchanged 500 ms ITI, a polled 100 ms tail and one stop are
+followed by a complete/partial data checkpoint before the next calibration.
+Four segment records track starts/stops independently, including failed-start
+cleanup; file close/transfer/shutdown remain once-only. A failed stop prevents
+the next setup. Final cleanup can stop an active/partially started segment,
+retain acquired data, close/transfer once, and retain partial EDFs conservatively.
+Aborted/error blocks and unpresented later blocks remain explicit. Transfer
+failure preserves task outcome separately and marks overall ERROR.
+
+The thin M5 SDK callback delegates official graphics/keyboard/sounds and polls
+the same serial reader during setup. A temporary pre-swap OpenGL mask blackens
+the fixed patch for SDK frames and is removed before trials. It uses no Screen
+calls inside the Screen hook. Optical matching is isolated by original first-byte
+block receipt context; global button release pairing still spans boundaries.
+Calibration/break presses stay in explicit nonresponse context. No timestamps,
+serial protocol, automatic TTL, Host filter/rate/geometry or SDK are altered.
+
+Outputs: existing raw/classified/session/recovery/EDF files plus `blocks.csv`,
+`block_summaries.csv`, four `calibrations.csv` records and four `sync.csv` rows.
+Trial/processed event/Flip rows carry global/local identifiers. Per-block and
+overall summaries include accuracy, timeouts, optical pulses/artifacts and mean
+hardware RT. Online snapshots remain provisional; final analysis is authoritative.
+
+Automated software evidence (MATLAB R2023b, isolated PTB/SDK/OpenGL/tPAD):
+
+- Final **20 M5 scenarios passed**: normal 40-trial completion, repeated mixed
+  responses/grace/timeouts/onset+offset chatter, delayed prior-block OFF fragments,
+  calibration/break noise and stale button reports, calibration rejection at
+  blocks 1/2/4, setup failure at 3, callback failure at 2, mid-block/SYNC aborts,
+  tracker/serial loss, start/stop/slow-message errors, full/partial-session EDF
+  transfer failures, byte mismatch and close failure. Native call ownership,
+  ordered 40 trial IDs, four gates/SYNCs, fixed timing, hardware RTs, block/local
+  outputs, black calibration frames, preference restoration and cleanup passed.
+- Synthetic normal result: 40 correct, 40 valid pulses, four SYNC pairs, 200 ms
+  RTs. Synthetic mixed result: 20 correct, 4 incorrect, 16 timeouts, 36 valid
+  onsets and 8 artifact pairs. Mean correct/all-response RTs are 522.5/598 ms,
+  matching the one-block fixture. These are separate from PO physical RTs.
+- Existing 11 offline groups (123 splits), 10 optical groups, 6 M2 analysis
+  groups, 30 M1 script cases plus geometry/handle-0 checks, 7 M2 script cases
+  and all **47 M3 scenarios passed**. Three historical replays retain 50 valid
+  pulses plus 11/5/13 artifacts; the first two retain missed-flip full-check FAIL.
+- **Code Analyzer: zero findings across 30 MATLAB source/test files.**
+  `.local/m5/regression.log` records the full suite (19 M5 cases at that run);
+  `.local/m5/release_focused.log` records the final 20-case M5 suite and Analyzer.
+  Graphics/SDK/serial calls are simulated, including native-style OpenGL binding
+  imports. No GUI/hardware/EDF scientific qualification is inferred.
+- All 416 pre-existing local data files and 21 unchanged MATLAB source/test
+  files matched their baseline hashes; original recordings remain Git-ignored.
+
+Implementation references: [SR Research block/session recording guidance](https://psychtoolbox.org/docs/SR-ResearchDemos),
+installed `SR-ResearchDemos/SimplePicture/EyeLink_SimplePicture.m`,
+[setup API](https://psychtoolbox.org/docs/EyelinkDoTrackerSetup) and
+[Screen hook restrictions](https://psychtoolbox.org/docs/Screen-HookFunction).
+
+**M5 physical acceptance remains pending.** The PO must exercise four new C/V
+procedures and confirmations, sensor blackness and calibration-target visibility,
+then verify a real EDF/ASC has one file/four recording segments, 40 correctly
+segmented trial IDs/variables, four SYNC pairs, independent INPUT and MSG,
+gaze quality and original hardware RT agreement. Also check Data Viewer import,
+partial-session recovery and the remaining display/fan-out/stability limits.
+The earlier M3/M4 laboratory results below do not qualify M5.
 
 ## Current M3/M4 physical laboratory evidence (2026-10-20)
 

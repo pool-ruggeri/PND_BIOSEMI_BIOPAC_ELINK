@@ -1,6 +1,8 @@
-function eye = m3_eyelink(folder, root)
-%M3_EYELINK Shared owner for one real connection, EDF and continuous recording.
+function eye = m3_eyelink(folder, root, blocks)
+%M3_EYELINK Shared owner for one connection/EDF and one or four recordings.
 % No acquisition settings, clock transforms, serial commands or TTL writes.
+if nargin < 3, blocks = 1; end
+assert(ismember(blocks, [1 4]), 'M3:Order', 'Expected one or four blocks.');
 recovery = fullfile(folder, 'eyelink_recovery.mat');
 s = struct('host_basename', '', 'host_edf', '', 'run_id', '', 'local_edf', '', ...
     'filename_confirmed', false, 'calibration_accepted', false, ...
@@ -18,7 +20,24 @@ s = struct('host_basename', '', 'host_edf', '', 'run_id', '', 'local_edf', '', .
         'duration_s', {}, 'status', {}, 'error', {}), ...
     'poll_gaps', struct('operation', {}, 'before_ptb', {}, 'after_ptb', {}, 'gap_s', {}));
 [~, s.run_id] = fileparts(folder);
-eye = struct('initialize', @initialize, 'calibrate', @calibrate, 'start', @start, ...
+s.planned_blocks = blocks; s.current_block = 0; s.segment_active = false;
+s.session_end_sent = false;
+s.calibrations = repmat(struct('block_number', 0, 'status', 'NOT_STARTED', ...
+    'started_ptb', NaN, 'finished_ptb', NaN, 'accepted_ptb', NaN, ...
+    'setup_result', NaN, 'last_result', NaN, 'last_result_text', '', ...
+    'accepted', false, 'new_calibration_operator_confirmed', false, ...
+    'new_validation_operator_confirmed', false, 'machine_verified', false, ...
+    'verification', 'UNVERIFIED'), blocks, 1);
+s.segments = repmat(struct('block_number', 0, 'first_trial', 0, ...
+    'start_attempted', false, 'recording_confirmed', false, 'started_ptb', NaN, ...
+    'stop_attempted', false, 'stopped_ptb', NaN, 'block_end_sent', false, ...
+    'error', ''), blocks, 1);
+for initialBlock = 1:blocks
+    s.calibrations(initialBlock).block_number = initialBlock;
+    s.segments(initialBlock).block_number = initialBlock;
+    s.segments(initialBlock).first_trial = (initialBlock-1)*10+1;
+end
+eye = struct('initialize', @initialize, 'calibrate', @calibrate, 'start', @start, 'stop', @stop, ...
     'message', @message, 'check', @check, 'state', @state, 'fail', @fail, ...
     'gap', @gap, 'finish', @finish, 'release', @release);
 checkpoint;
@@ -41,7 +60,9 @@ checkpoint;
             'An EyeLink connection already exists; this run will not take ownership.');
         s.connection_owned = true; % Own even a partially failed Initialize attempt.
         checkpoint;
-        assert(api('Initialize', 'PsychEyelinkDispatchCallback') == 0, ...
+        callback = 'PsychEyelinkDispatchCallback';
+        if blocks > 1, callback = 'm5_setup_callback'; end
+        assert(api('Initialize', callback) == 0, ...
             'M3:Connection', 'Real EyeLink initialization failed.');
         assert(api('IsConnected') == 1, 'M3:Connection', ...
             'Normal real EyeLink connection required; dummy/broadcast acquisition is rejected.');
@@ -90,11 +111,31 @@ checkpoint;
         checkpoint;
     end
 
-    function calibrate(window, patch)
+    function calibrate(window, patch, block)
+        if nargin < 3, block = 1; end
+        assert(block == s.current_block+1 && block <= blocks && ...
+            ~s.segment_active && (block == 1 || isfinite(s.segments(block-1).stopped_ptb)), ...
+            'M3:Order', 'Previous recording must stop before a fresh block calibration.');
+        s.current_block = block; s.calibration_accepted = false;
+        s.setup_result = NaN; s.calibration_result = NaN; s.calibration_text = '';
+        s.calibrations(block).status = 'IN_PROGRESS';
+        s.calibrations(block).started_ptb = GetSecs; checkpoint;
+        if block > 1, api('SetOfflineMode'); end
         InitializePsychSound;
         el = EyelinkInitDefaults(window);
         el.backgroundcolour = patch.black; el.calibrationtargetcolour = patch.white;
         el.msgfontcolour = patch.white;
+        if blocks > 1
+            Screen('TextSize', window, 24);
+            el.callback = 'm5_setup_callback';
+            el.helptext = sprintf(['Block %d/%d - EyeLink calibration and validation #%d\n' ...
+                'Perform NEW calibration (C) AND validation (V), then return.\n%s'], ...
+                block, blocks, block, el.helptext);
+            maskCleanup = m5_calibration_mask('install', window, patch.rect); %#ok<NASGU>
+            Screen('FillRect', window, patch.black);
+            DrawFormattedText(window, el.helptext, 'center', 'center', patch.white);
+            Screen('FillRect', window, patch.black, patch.rect); Screen('Flip', window);
+        end
         EyelinkUpdateDefaults(el);
         [w, h] = Screen('WindowSize', window);
         assert(api('Command', sprintf('screen_pixel_coords = 0 0 %d %d', w-1, h-1)) == 0, ...
@@ -104,9 +145,12 @@ checkpoint;
         try
             s.setup_result = EyelinkDoTrackerSetup(el);
         catch problem
+            s.calibrations(block).status = 'ERROR'; checkpoint;
             log_call('TrackerSetup', '', began, NaN, problem.message); rethrow(problem);
         end
         log_call('TrackerSetup', '', began, s.setup_result, '');
+        s.calibrations(block).setup_result = s.setup_result;
+        s.calibrations(block).finished_ptb = GetSecs; checkpoint;
         assert(s.setup_result == 0 && api('IsConnected') == 1, ...
             'M3:Calibration', 'EyeLink setup failed or connection was lost.');
         try
@@ -114,31 +158,67 @@ checkpoint;
         catch problem
             s.calibration_text = ['Result unavailable: ' problem.message];
         end
+        s.calibrations(block).last_result = s.calibration_result;
+        s.calibrations(block).last_result_text = s.calibration_text;
         checkpoint;
         Screen('FillRect', window, patch.black);
-        DrawFormattedText(window, sprintf(['Review calibration AND validation on the Host.\n%s\n\n' ...
-            'Press Y only if quality is acceptable; ESC cancels.'], s.calibration_text), ...
-            'center', 'center', patch.white);
+        prompt = sprintf(['Review calibration AND validation on the Host.\n%s\n\n' ...
+            'Press Y only if quality is acceptable; ESC cancels.'], s.calibration_text);
+        if blocks > 1
+            prompt = sprintf(['Block %d/%d - calibration and validation #%d\n%s\n\n' ...
+                'Press Y ONLY to confirm BOTH a NEW calibration AND a NEW validation\n' ...
+                'were performed for THIS block and their quality is acceptable.\n' ...
+                'This is operator confirmation; the API cannot verify both procedures.\nESC cancels.'], ...
+                block, blocks, block, s.calibration_text);
+        end
+        DrawFormattedText(window, prompt, 'center', 'center', patch.white);
         Screen('FillRect', window, patch.black, patch.rect); Screen('Flip', window);
         KbReleaseWait;
         while true
             [~, ~, keys] = KbCheck;
-            assert(~keys(KbName('ESCAPE')), 'M3:Abort', 'Calibration/validation acceptance cancelled.');
+            if keys(KbName('ESCAPE'))
+                s.calibrations(block).status = 'REJECTED'; checkpoint;
+                error('M3:Abort', 'Calibration/validation acceptance cancelled.');
+            end
             if keys(KbName('y')), break; end
             WaitSecs('YieldSecs', 0.01);
         end
-        s.calibration_accepted = true; checkpoint;
+        s.calibration_accepted = true;
+        s.calibrations(block).accepted = true;
+        s.calibrations(block).status = 'ACCEPTED';
+        s.calibrations(block).accepted_ptb = GetSecs;
+        s.calibrations(block).verification = 'OPERATOR_CONFIRMED';
+        s.calibrations(block).new_calibration_operator_confirmed = blocks > 1;
+        s.calibrations(block).new_validation_operator_confirmed = blocks > 1;
+        checkpoint;
         ListenChar(2);
         Screen('FillRect', window, patch.black); Screen('Flip', window);
     end
 
     function start
-        assert(s.calibration_accepted && s.file_created && s.trial_open == 1 && ~s.start_attempted, ...
-            'M3:Order', 'Calibration, owned EDF and first TRIALID required before the single recording.');
+        b = s.current_block;
+        assert(b > 0 && s.calibration_accepted && s.calibrations(b).accepted && s.file_created && ...
+            s.trial_open == s.segments(b).first_trial && ~s.segments(b).start_attempted, ...
+            'M3:Order', 'Fresh accepted calibration, owned EDF and first block TRIALID required.');
         api('SetOfflineMode');
-        s.start_attempted = true; checkpoint;
+        s.start_attempted = true; s.segments(b).start_attempted = true; checkpoint;
         assert(api('StartRecording', 1, 1, 0, 0) == 0, 'M3:Recording', 'StartRecording failed.');
-        s.recording_confirmed = true; checkpoint;
+        s.recording_confirmed = true; s.segment_active = true;
+        s.segments(b).recording_confirmed = true;
+        s.segments(b).started_ptb = GetSecs; checkpoint;
+    end
+
+    function stop
+        b = s.current_block;
+        if b == 0 || ~s.segments(b).start_attempted || s.segments(b).stop_attempted, return; end
+        s.stop_attempted = true; s.segments(b).stop_attempted = true; checkpoint;
+        try
+            api('StopRecording');
+            s.segment_active = false; s.segments(b).stopped_ptb = GetSecs;
+        catch problem
+            s.segments(b).error = problem.message; checkpoint; rethrow(problem);
+        end
+        checkpoint;
     end
 
     function ok = check
@@ -161,6 +241,8 @@ checkpoint;
             assert(api('Message', '%s', text) == 0, 'M3:Message', 'EyeLink message submission failed.');
             if startsWith(text, 'TRIALID '), s.trial_open = sscanf(text, 'TRIALID %d', 1); end
             if startsWith(text, 'TRIAL_RESULT '), s.trial_open = 0; end
+            if startsWith(text, 'SESSION_END '), s.session_end_sent = true; end
+            if startsWith(text, 'BLOCK_END '), s.segments(s.current_block).block_end_sent = true; end
             ok = true;
         catch problem
             fail(problem);
@@ -172,22 +254,32 @@ checkpoint;
         s.finished = true; % Shared guard cannot repeat stop/close/shutdown.
         s.task_exit_status = status;
         if s.connection_owned
-            if s.recording_confirmed
+            if s.segment_active || (blocks > 1 && s.start_attempted)
                 if s.trial_open > 0
                     result = -1; if strcmp(status, 'aborted'), result = 3; end
                     message(sprintf('TRIAL_RESULT %d', result));
                 end
-                message(['SESSION_END status=' upper(status)]);
+                if blocks > 1 && s.segments(s.current_block).start_attempted && ...
+                        ~s.segments(s.current_block).block_end_sent
+                    message(sprintf('BLOCK_END block=%d status=%s', s.current_block, upper(status)));
+                end
+                if ~s.session_end_sent, message(['SESSION_END status=' upper(status)]); end
                 try
-                    WaitSecs(0.1); % Eye-only tail; serial data was saved first.
+                    if s.segment_active, WaitSecs(0.1); end % Serial data was saved first.
                 catch problem
                     fail(problem);
                 end
             end
-            if s.start_attempted
-                s.stop_attempted = true; attempt('StopRecording');
+            try
+                stop;
+            catch problem
+                fail(problem);
             end
             attempt('SetOfflineMode');
+            s.segment_active = false;
+            if s.current_block > 0 && strcmp(s.calibrations(s.current_block).status, 'IN_PROGRESS')
+                s.calibrations(s.current_block).status = upper(status);
+            end
             if s.file_may_be_open
                 s.close_attempted = true;
                 try
